@@ -84,7 +84,7 @@
 | ADMIN_EMAILS | — | почты администраторов банка дома (через запятую) |
 | HOUSE_START_BALANCE | 10000000 | стартовый баланс банка дома (при первом запуске) |
 | DB_PATH | data/auctioneer.db | файл SQLite |
-| GAME_BETTING_SECONDS / GAME_REVEAL_SECONDS / GAME_BID_SECONDS / GAME_RESOLVE_SECONDS | 60 / 7 / 25 / 8 | тайминги фаз |
+| GAME_BETTING_SECONDS / GAME_REVEAL_SECONDS / GAME_BID_SECONDS / GAME_RESOLVE_SECONDS | 60 / 7 / 45 / 8 | тайминги фаз |
 
 ## Команды
 

@@ -37,7 +37,7 @@ export const config = {
   gameTimings: {
     betting: Number(process.env.GAME_BETTING_SECONDS ?? 60),
     reveal: Number(process.env.GAME_REVEAL_SECONDS ?? 7),
-    bid: Number(process.env.GAME_BID_SECONDS ?? 25),
+    bid: Number(process.env.GAME_BID_SECONDS ?? 45),
     resolve: Number(process.env.GAME_RESOLVE_SECONDS ?? 8),
   },
 };

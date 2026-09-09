@@ -30,7 +30,7 @@ export const STARTER_PACK_MAX = 660_000;
 /** Тайминги фаз, секунды */
 export const BETTING_SECONDS = 60;
 export const REVEAL_SECONDS = 7;
-export const BID_SECONDS = 25;
+export const BID_SECONDS = 45;
 export const RESOLVE_SECONDS = 8;
 
 /**

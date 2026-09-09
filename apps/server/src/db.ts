@@ -228,10 +228,28 @@ function mapUser(r: Row | undefined): UserRow | null {
   };
 }
 
+/** Число «Пыльных ваз» (билетов колеса фортуны) сверх стартового набора */
+const STARTER_WHEEL_TICKETS = 5;
+
 function createStarterPack(userId: string): ItemInstance[] {
   let seed = Date.now() & 0xffffffff;
   for (const ch of userId) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
   const pack = generateStarterPack(mulberry32(seed));
+  // Сверху новичок получает билеты колеса фортуны — «Пыльные вазы»
+  const ticket = ITEM_CATALOG.find((d) => d.id === WHEEL_TICKET_DEF_ID);
+  if (ticket) {
+    for (let i = 0; i < STARTER_WHEEL_TICKETS; i++) {
+      pack.push({
+        id: crypto.randomUUID(),
+        defId: ticket.id,
+        name: ticket.name,
+        rarity: ticket.rarity,
+        value: ticket.value,
+        w: ticket.w,
+        h: ticket.h,
+      });
+    }
+  }
   const now = Date.now();
   const insert = db.prepare(
     'INSERT INTO items (id, user_id, def_id, name, rarity, value, w, h, game_id, inv_x, inv_y, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',

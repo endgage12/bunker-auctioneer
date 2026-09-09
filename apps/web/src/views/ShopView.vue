@@ -357,7 +357,6 @@ async function spin(): Promise<void> {
     const idx = WHEEL_SEGMENTS.findIndex((c) => c.id === resp.cardId);
     const jitter = (Math.random() * 2 - 1) * 13;
     const target = rot.v + rotationToSegment(idx, 5, jitter);
-    result.value = resp;
     tween = gsap.to(rot, {
       v: target,
       duration: WHEEL_SPIN_MS / 1000,
@@ -365,6 +364,8 @@ async function spin(): Promise<void> {
       onUpdate: applyRotation,
       onComplete: () => {
         spinning.value = false;
+        // выигрыш показываем только после остановки колеса — сохраняем интригу
+        result.value = resp;
       },
     });
   } catch (e) {

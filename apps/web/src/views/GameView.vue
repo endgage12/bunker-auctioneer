@@ -83,6 +83,7 @@
             :subtitle="boardSubtitle"
             mode="auction"
             :rarity-hints="game.private?.rarityHints"
+            @hidden-click="onHiddenClick"
           />
         </div>
       </main>
@@ -121,6 +122,7 @@
             mode="auction"
             fit="width"
             :rarity-hints="game.private?.rarityHints"
+            @hidden-click="onHiddenClick"
           />
         </div>
 
@@ -145,6 +147,36 @@
       </footer>
       </div>
     </div>
+
+    <!-- модалка: какие предметы может скрывать нераскрытая плитка -->
+    <Dialog v-model:open="hiddenModalOpen">
+      <DialogContent class="max-w-xl">
+        <DialogHeader class="pr-8">
+          <DialogTitle>
+            Скрытый предмет {{ hiddenModal ? hiddenModal.w + '×' + hiddenModal.h : '' }}
+          </DialogTitle>
+        </DialogHeader>
+        <p v-if="hiddenModal" class="text-xs text-slate-400 mt-1">
+          Под этой плиткой лежит один из {{ hiddenCandidates.length }} предметов каталога
+          с размером {{ hiddenModal.w }}×{{ hiddenModal.h }}:
+        </p>
+        <div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3 max-h-80 overflow-y-auto pr-1">
+          <div
+            v-for="d in hiddenCandidates"
+            :key="d.id"
+            class="rounded-lg p-1.5 bg-slate-800/40 flex flex-col items-center"
+            :title="d.desc"
+          >
+            <div class="w-full aspect-square rounded overflow-hidden">
+              <ItemCard :name="d.name" :rarity="d.rarity" :def-id="d.id" :value="d.value" dense :show-value="false" />
+            </div>
+            <div class="text-[9px] text-slate-400 text-center mt-1 leading-tight w-full truncate">
+              <CoinAmount :value="d.value" />
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
   <div v-else class="h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
     <template v-if="joinError">
@@ -160,8 +192,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import CoinAmount from '../components/CoinAmount.vue';
+import { ITEM_CATALOG } from '@auctioneer/shared';
 import type { Profile } from '@auctioneer/shared';
+import CoinAmount from '../components/CoinAmount.vue';
+import ItemCard from '../components/ItemCard.vue';
+import Dialog from '../components/ui/dialog/Dialog.vue';
+import DialogContent from '../components/ui/dialog/DialogContent.vue';
+import DialogHeader from '../components/ui/dialog/DialogHeader.vue';
+import DialogTitle from '../components/ui/dialog/DialogTitle.vue';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopBar from '../components/TopBar.vue';
@@ -186,6 +224,26 @@ const joinError = ref('');
 const game = computed(() => gameStore.game);
 const meId = computed(() => auth.meId);
 const iAmReady = computed(() => game.value?.players.find((p) => p.id === meId.value)?.ready ?? false);
+
+/** Кликнутая нераскрытая плитка: модалка показывает все предметы такого же размера */
+const hiddenModal = ref<{ w: number; h: number } | null>(null);
+const hiddenModalOpen = computed({
+  get: () => hiddenModal.value !== null,
+  set: (v: boolean) => {
+    if (!v) hiddenModal.value = null;
+  },
+});
+const hiddenCandidates = computed(() => {
+  const m = hiddenModal.value;
+  if (!m) return [];
+  return ITEM_CATALOG
+    .filter((d) => d.w === m.w && d.h === m.h)
+    .sort((a, b) => a.value - b.value);
+});
+
+function onHiddenClick(rect: { x: number; y: number; w: number; h: number }): void {
+  hiddenModal.value = { w: rect.w, h: rect.h };
+}
 
 const canHover =
   typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;

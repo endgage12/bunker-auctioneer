@@ -67,6 +67,16 @@
             <rect x="1" y="1" :width="frameSize(r).w - 2" :height="frameSize(r).h - 2" :rx="FRAME_R" />
           </svg>
 
+          <!-- кликабельная зона нераскрытых предметов: клик — модалка с вариантами -->
+          <div
+            v-for="r in hiddenRects"
+            :key="'hc' + r.itemId"
+            class="hidden-clickable absolute"
+            :style="hiddenRectStyle(r)"
+            :title="'Скрытый предмет ' + r.w + '×' + r.h"
+            @click="onHiddenClick(r)"
+          ></div>
+
           <!-- личные подсказки о редкости скрытых предметов (карточки-анализаторы) -->
           <div
             v-for="r in rarityHintRects"
@@ -137,6 +147,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'cell-click', pos: { x: number; y: number }): void;
   (e: 'item-click', itemId: string): void;
+  (e: 'hidden-click', rect: { x: number; y: number; w: number; h: number }): void;
 }>();
 
 const hoverIdx = ref(-1);
@@ -356,6 +367,20 @@ function frameRectStyle(r: HiddenRect): Record<string, string> {
   };
 }
 
+function hiddenRectStyle(r: HiddenRect): Record<string, string> {
+  const s = frameSize(r);
+  return {
+    left: PAD + r.x * (CELL + GAP) + 'px',
+    top: PAD + r.y * (CELL + GAP) + 'px',
+    width: s.w + 'px',
+    height: s.h + 'px',
+  };
+}
+
+function onHiddenClick(r: HiddenRect): void {
+  emit('hidden-click', { x: r.x, y: r.y, w: r.w, h: r.h });
+}
+
 /** Периметр скруглённой рамки — чтобы цикл бегущей полосы был бесшовным */
 function framePerimeter(r: HiddenRect): number {
   const s = frameSize(r);
@@ -499,6 +524,14 @@ function onItemClick(it: PublicItem): void {
 .hidden-frame {
   z-index: 10;
   overflow: visible;
+}
+.hidden-clickable {
+  z-index: 12;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.hidden-clickable:hover {
+  box-shadow: inset 0 0 0 calc(2px / var(--bs, 1)) rgba(56, 189, 248, 0.55);
 }
 .hidden-frame rect {
   fill: none;

@@ -9,9 +9,9 @@ import {
   GRID_W,
   MULTIPLIERS,
   MULTIPLIER_PCT,
-  PRIZE_ITEMS_PER_LOT_MAX,
-  PRIZE_POOL_FACTOR,
   PRIZE_RARITY,
+  TABLE_FILL_MAX,
+  TABLE_FILL_MIN,
   REVEAL_FRACTIONS,
   REVEAL_SECONDS,
   RESOLVE_SECONDS,
@@ -187,8 +187,10 @@ export class Game {
       bid: null,
       inventory: p.inventory.map((i) => ({ ...i })),
     }));
+    // стол формируется и запечатывается ДО вступительных ставок
+    this.buildTable();
     this.deadline = this.now() + this.bettingSeconds * 1000;
-    this.addLog('system', 'Сделайте вступительные ставки (от ' + fmt(ANTE_MIN) + ' до ' + fmt(ANTE_MAX) + '). Стол заполнится призами на 120% от банка ставок.');
+    this.addLog('system', 'Стол сформирован и запечатан. Сделайте вступительные ставки (от ' + fmt(ANTE_MIN) + ' до ' + fmt(ANTE_MAX) + ').');
   }
 
   // ---------- вспомогательные ----------
@@ -283,51 +285,63 @@ export class Game {
     }
     this.pot = pot;
     this.addLog('system', 'Ставки приняты. Банк партии: ' + fmt(pot));
-    this.buildTable(pot);
     this.phase = 'auction';
-    this.addLog('system', 'Стол заполнен и запечатан. «Корабль сокровищ» готов к торгам!');
+    this.addLog('system', '«Корабль сокровищ» готов к торгам!');
     this.startAuction();
     this.changed();
   }
 
   // ---------- стол ----------
 
-  private buildTable(pot: number): void {
-    const P = this.players.length;
-    const target = Math.round((pot * PRIZE_POOL_FACTOR) / P);
-    const lots: ItemInstance[][] = this.players.map(() => []);
-    let candidates = lots.map((_, i) => i);
+  /**
+   * Стол заполняется предметами до заданной доли клеток поля:
+   * минимум TABLE_FILL_MIN (~60%), максимум TABLE_FILL_MAX (~95%).
+   * Предметы кладутся вплотную друг к другу от левого нижнего угла.
+   */
+  private buildTable(): void {
+    const totalCells = GRID_W * GRID_H;
+    const minCover = Math.floor(totalCells * TABLE_FILL_MIN);
+    const maxCover = Math.floor(totalCells * TABLE_FILL_MAX);
+    // целевая заполненность стола — случайная величина в диапазоне ~60%..95%
+    const target = Math.min(
+      maxCover,
+      minCover + Math.floor(this.rng() * (maxCover - minCover + 1)),
+    );
+    let covered = this.placed.reduce((s, pl) => s + pl.w * pl.h, 0);
     let guard = 0;
-    while (candidates.length > 0 && guard++ < 300) {
-      const i = candidates.reduce(
-        (best, ci) => (itemsTotal(lots[ci]) < itemsTotal(lots[best]) ? ci : best),
-        candidates[0],
-      );
-      if (itemsTotal(lots[i]) >= target) {
-        candidates = candidates.filter((c) => c !== i);
-        continue;
+    while (covered < target && guard++ < 300) {
+      const item = generateItem(this.rng, { rarityWeights: PRIZE_RARITY });
+      const area = item.w * item.h;
+      if (covered + area > maxCover) {
+        this.dropped.push(item);
+        break; // жёсткий потолок: не вылезаем за максимум
       }
-      lots[i].push(generateItem(this.rng, { rarityWeights: PRIZE_RARITY }));
-      if (lots[i].length >= PRIZE_ITEMS_PER_LOT_MAX) candidates = candidates.filter((c) => c !== i);
-    }
-    for (const lot of lots) {
-      for (const item of lot) {
-        const placed = this.tryPlaceItem(item);
-        if (!placed) this.dropped.push(item);
+      if (this.tryPlaceItem(item)) {
+        covered += area;
+      } else {
+        this.dropped.push(item);
       }
     }
   }
 
+  /**
+   * Упаковка предметов на столе: лежат вплотную друг к другу,
+   * начиная с левого нижнего угла (нижние ряды первыми, слева направо).
+   * Ориентация — случайная, при неудаче пробуется повёрнутая.
+   */
   private tryPlaceItem(item: ItemInstance): boolean {
-    for (let attempt = 0; attempt < 400; attempt++) {
-      const w = this.rng() < 0.5 ? item.w : item.h;
-      const h = w === item.w ? item.h : item.w;
-      const x = Math.floor(this.rng() * (GRID_W - w + 1));
-      const y = Math.floor(this.rng() * (GRID_H - h + 1));
-      if (x < 0 || y < 0) continue;
-      if (this.overlapsPlaced(x, y, w, h)) continue;
-      this.placed.push({ it: item, x, y, w, h, revealed: false });
-      return true;
+    const dims: [number, number][] =
+      this.rng() < 0.5
+        ? [[item.w, item.h], [item.h, item.w]]
+        : [[item.h, item.w], [item.w, item.h]];
+    for (const [w, h] of dims) {
+      for (let y = GRID_H - h; y >= 0; y--) {
+        for (let x = 0; x + w <= GRID_W; x++) {
+          if (this.overlapsPlaced(x, y, w, h)) continue;
+          this.placed.push({ it: item, x, y, w, h, revealed: false });
+          return true;
+        }
+      }
     }
     return false;
   }

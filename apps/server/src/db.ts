@@ -233,6 +233,9 @@ function mapUser(r: Row | undefined): UserRow | null {
 /** Число «Пыльных ваз» (билетов колеса фортуны) сверх стартового набора */
 const STARTER_WHEEL_TICKETS = 5;
 
+/** Число карточек «Малый анализатор редкости» у нового игрока по умолчанию */
+const STARTER_ANALYZER_CARDS = 3;
+
 function createStarterPack(userId: string): ItemInstance[] {
   let seed = Date.now() & 0xffffffff;
   for (const ch of userId) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
@@ -259,6 +262,11 @@ function createStarterPack(userId: string): ItemInstance[] {
   for (const it of pack) {
     const slot = findFreeSlot(userId, it.w, it.h);
     insert.run(it.id, userId, it.defId, it.name, it.rarity, it.value, it.w, it.h, slot ? slot.x : null, slot ? slot.y : null, now);
+  }
+  // сверх набора — 3 карточки «Малый анализатор редкости» для подсказок на столе
+  const insCard = db.prepare('INSERT INTO cards (id, user_id, card_id, created_at) VALUES (?, ?, ?, ?)');
+  for (let i = 0; i < STARTER_ANALYZER_CARDS; i++) {
+    insCard.run(crypto.randomUUID(), userId, 'analyzer-small', now);
   }
   db.prepare('UPDATE users SET cash = ? WHERE id = ?').run(START_CASH, userId);
   houseAdjust(-START_CASH, 'starter', userId, 'Стартовый капитал игрока');

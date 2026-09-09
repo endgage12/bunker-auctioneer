@@ -46,9 +46,7 @@ export const MULTIPLIER_PCT = [200, 160, 130, 110, 100] as const;
 /** Доля предметов лота, раскрываемая к началу раундов 1..4 (кумулятивно) */
 export const REVEAL_FRACTIONS = [0.25, 0.5, 0.75, 1] as const;
 
-/** Призовая доска: предметов в лоте */
-export const PRIZE_ITEMS_PER_LOT_MIN = 3;
-export const PRIZE_ITEMS_PER_LOT_MAX = 6;
-
-/** Суммарная стоимость призовой доски = вклады игроков * этот коэффициент */
-export const PRIZE_POOL_FACTOR = 1.2;
+/** Призовой стол формируется до ставок: минимальная доля клеток, занятая предметами */
+export const TABLE_FILL_MIN = 0.6;
+/** ...и максимальная доля клеток */
+export const TABLE_FILL_MAX = 0.95;

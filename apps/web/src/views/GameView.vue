@@ -71,7 +71,7 @@
           Текущая ожидаемая стоимость предметов на столе:
           <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
           <span v-if="game.phase === 'betting'" class="text-slate-500 text-xs">
-            · стол заполнится призами после вступительных ставок
+            · стол уже сформирован — вступительная ставка открывает торги
           </span>
         </div>
         <div class="flex-1 min-h-0 overflow-auto pb-2">
@@ -104,7 +104,7 @@
           <span class="text-slate-400">Стол:</span>
           <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
           <span v-if="game.phase === 'betting'" class="text-slate-600 ml-auto text-[11px]">
-            призы появятся после вступительных ставок
+            стол запечатан — сделайте вступительную ставку
           </span>
           <span v-else class="text-slate-600 ml-auto text-[11px] sm:hidden">
             нажмите на предмет — детали

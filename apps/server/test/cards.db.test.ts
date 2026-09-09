@@ -37,7 +37,10 @@ describe('магазин: колесо фортуны', () => {
     const res = db.spinWheel(user.id, () => 0.5);
     expect(res.ok).toBe(false);
     expect(res.error).toContain('Пыльная ваза');
-    expect(db.getCards(user.id)).toHaveLength(0);
+    // новых карточек нет — только стартовые 3 «Малых анализатора»
+    const cards = db.getCards(user.id);
+    expect(cards.map((c) => c.cardId)).toEqual(['analyzer-small']);
+    expect(cards[0].count).toBe(3);
   });
 
   it('крутка списывает вазу и выдаёт карточку (детерминированный ГПСЧ)', () => {
@@ -51,7 +54,8 @@ describe('магазин: колесо фортуны', () => {
     expect(res.ok).toBe(true);
     expect(res.cardId).toBe('analyzer-small');
     const cards = db.getCards(user.id);
-    expect(cards.find((c) => c.cardId === 'analyzer-small')?.count).toBe(1);
+    // 3 стартовых + 1 с колеса
+    expect(cards.find((c) => c.cardId === 'analyzer-small')?.count).toBe(4);
     expect(db.getShopState(user.id).vaseCount).toBe(vasesBefore - 1);
     // в инвентаре ваза исчезла
     expect(db.getProfile(user.id)!.inventory.some((i) => i.defId === 'white-0')).toBe(false);
@@ -64,6 +68,16 @@ describe('магазин: колесо фортуны', () => {
     const res = db.spinWheel(user.id, () => 0.999);
     expect(res.ok).toBe(true);
     expect(res.cardId).toBe('amp-red');
+  });
+});
+
+describe('стартовые карточки', () => {
+  it('новичок получает 3 «Малых анализатора редкости»', () => {
+    const user = db.findOrCreateDevUser('starter-cards@test.dev', 'СтартКарты');
+    const cards = db.getCards(user.id);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].cardId).toBe('analyzer-small');
+    expect(cards[0].count).toBe(3);
   });
 });
 

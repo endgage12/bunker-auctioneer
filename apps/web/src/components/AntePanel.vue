@@ -2,7 +2,7 @@
   <div class="panel p-5 flex flex-col gap-3">
     <h3 class="font-semibold text-sm">Вступительная ставка</h3>
     <p class="text-xs text-slate-500">
-      От <CoinAmount :value="ANTE_MIN" /> до <CoinAmount :value="ANTE_MAX" />. Стол заполнится призами на 120% от банка ставок.
+      От <CoinAmount :value="ANTE_MIN" /> до <CoinAmount :value="ANTE_MAX" />. Стол уже сформирован и запечатан — ставка открывает участие в торгах.
     </p>
     <template v-if="myPlayer && myPlayer.ante === 0">
       <div class="flex items-center gap-2">

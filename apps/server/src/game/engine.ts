@@ -545,6 +545,7 @@ export class Game {
     if (!a) return;
     const winner = this.getPlayer(winnerId);
     if (!winner) return;
+    this.revealAll();
     winner.cash -= price;
     winner.spent += price;
     const totalValue = itemsTotal(this.placed.map((pl) => pl.it));
@@ -574,6 +575,7 @@ export class Game {
   private voidSale(): void {
     const a = this.auction;
     if (!a) return;
+    this.revealAll();
     for (const pl of this.placed) this.dropped.push(pl.it);
     a.result = { voided: true };
     a.phase = 'resolve';
@@ -584,7 +586,25 @@ export class Game {
 
   // ---------- финал ----------
 
+  /**
+   * Финальное раскрытие: перевернуть все оставшиеся скрытыми предметы стола.
+   * Вызывается при определении исхода аукциона и в финале (идемпотентно):
+   * даже если игра закончилась раньше 4-го раунда, игроки увидят весь стол.
+   */
+  private revealAll(): void {
+    if (this.placed.every((pl) => pl.revealed)) return;
+    for (const pl of this.placed) pl.revealed = true;
+    const total = itemsTotal(this.placed.map((pl) => pl.it));
+    const a = this.auction;
+    if (a) {
+      a.revealedCount = a.totalItems;
+      a.revealedValue = total;
+    }
+    this.addLog('reveal', 'Стол раскрыт полностью: ' + this.placed.length + ' предметов на ' + fmt(total));
+  }
+
   private finishGame(): void {
+    this.revealAll();
     const standings: FinalStanding[] = this.players.map((p) => {
       const inventoryValue = itemsTotal(p.inventory);
       return { playerId: p.id, cash: p.cash, inventoryValue, total: p.cash + inventoryValue, place: 0 };

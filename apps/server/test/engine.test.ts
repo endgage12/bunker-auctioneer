@@ -115,6 +115,39 @@ describe('аукцион', () => {
   });
 });
 
+describe('финальное раскрытие стола', () => {
+  it('при победе в 1-м раунде все предметы раскрываются к концу игры', () => {
+    const g = makeGame(
+      [seed('a', 100_000, []), seed('b', 100_000, [])],
+      { rng: mulberry32(7) },
+    );
+    g.submitAnte('a', 10_000);
+    g.submitAnte('b', 10_000);
+    g.advance(); // лок ставок -> стол сгенерирован, раунд 1 (раскрыта лишь часть)
+    expect(g.debug().placed.length).toBeGreaterThan(0);
+    expect(g.snapshot().items.some((i) => !i.revealed)).toBe(true); // есть скрытые
+
+    g.advance(); // reveal -> bid
+    g.submitBid('a', 90_000); // 90 000 >= 2 × 100 — победа уже в 1-м раунде
+    g.submitBid('b', 100);
+    g.advance(); // bid -> resolve: исход определён, стол раскрыт полностью
+    const s1 = g.snapshot();
+    expect(s1.auction?.result?.winnerId).toBe('a');
+    expect(s1.items.every((i) => i.revealed && i.name !== undefined && i.value !== undefined)).toBe(true);
+    expect(s1.board.cells.every((c) => c.kind !== 'closed')).toBe(true);
+
+    g.advance(); // resolve -> финал
+    expect(g.isFinished).toBe(true);
+    const s2 = g.snapshot();
+    expect(s2.items.every((i) => i.revealed)).toBe(true);
+    expect(s2.board.cells.every((c) => c.kind !== 'closed')).toBe(true);
+    // сумма раскрытого в итогах равна полной стоимости стола
+    expect(s2.items.reduce((sum, i) => sum + (i.value ?? 0), 0)).toBe(
+      itemsTotal(g.debug().placed.map((pl) => pl.it)),
+    );
+  });
+});
+
 describe('полная игра', () => {
   it('завершается и сохраняет консервацию богатства', () => {
     const rng = mulberry32(42);

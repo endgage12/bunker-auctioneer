@@ -26,10 +26,28 @@
       </div>
     </div>
 
-    <!-- Итоги -->
+    <!-- Итоги: результаты + полностью раскрытый стол -->
     <div v-else-if="game.phase === 'finished'" class="flex-1 overflow-auto p-3 sm:p-6">
-      <div class="min-h-full flex items-center justify-center">
-        <ResultModal :game="game" :me-id="meId" @leave="leave" @again="startGame" />
+      <div class="max-w-5xl mx-auto flex flex-col gap-4 pb-6">
+        <div class="flex justify-center">
+          <ResultModal :game="game" :me-id="meId" @leave="leave" @again="startGame" />
+        </div>
+        <div class="panel p-2 sm:p-3">
+          <BoardView
+            :board="game.board"
+            :items="game.items"
+            :players="game.players"
+            title="Финальный стол"
+            subtitle="все предметы раскрыты"
+            mode="auction"
+            fit="width"
+          />
+        </div>
+        <p class="text-center text-xs text-slate-500">
+          Полная стоимость стола:
+          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
+          · вот что скрывалось до конца игры
+        </p>
       </div>
     </div>
 

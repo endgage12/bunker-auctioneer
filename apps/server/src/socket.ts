@@ -300,15 +300,23 @@ export function attachSocket(io: Server): void {
       broadcast(room);
     });
 
-    socket.on(C2S.sync, (payload: { code?: string }) => {
-      const room = manager.getRoom(String(payload?.code ?? ''));
-      if (room && room.members.has(uid)) {
-        socket.data.roomCode = room.code;
-        socket.join(chan(room));
-        room.onUpdate = () => broadcast(room);
-        room.game?.markOnline(uid, true);
-        sendPersonalized(socket, room);
+    socket.on(C2S.sync, (payload: { code?: string }, ack?: (resp: { ok: boolean; error?: string }) => void) => {
+      const code = String(payload?.code ?? '');
+      const room = manager.getRoom(code);
+      if (!room) {
+        ack?.({ ok: false, error: 'Комната не найдена' });
+        return;
       }
+      if (!room.members.has(uid)) {
+        ack?.({ ok: false, error: 'Вы не состоите в этой комнате' });
+        return;
+      }
+      socket.data.roomCode = room.code;
+      socket.join(chan(room));
+      room.onUpdate = () => broadcast(room);
+      room.game?.markOnline(uid, true);
+      sendPersonalized(socket, room);
+      ack?.({ ok: true });
     });
 
     socket.on(C2S.leaveRoom, () => {

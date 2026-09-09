@@ -53,6 +53,19 @@
             :style="previewRect(preview)"
           ></div>
 
+          <!-- бегущая рамка вокруг нераскрытых предметов (GSAP) -->
+          <svg
+            v-for="r in hiddenRects"
+            :key="'f' + r.itemId"
+            ref="frameEls"
+            class="hidden-frame absolute pointer-events-none"
+            :style="frameRectStyle(r)"
+            :width="frameSize(r).w"
+            :height="frameSize(r).h"
+          >
+            <rect x="1" y="1" :width="frameSize(r).w - 2" :height="frameSize(r).h - 2" :rx="FRAME_R" />
+          </svg>
+
           <!-- личные подсказки о редкости скрытых предметов (карточки-анализаторы) -->
           <div
             v-for="r in rarityHintRects"
@@ -91,7 +104,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { gsap } from 'gsap';
 import { fmt } from '@auctioneer/shared';
 import type { PublicBoard, PublicCell, PublicItem, PublicLot, Rarity, RarityHint } from '@auctioneer/shared';
 import { RARITY_HEX } from '../lib/rarity';
@@ -149,6 +163,7 @@ function measure(): void {
 
 onMounted(() => {
   measure();
+  syncFrames();
   if (typeof ResizeObserver !== 'undefined' && viewport.value) {
     ro = new ResizeObserver(() => measure());
     ro.observe(viewport.value);
@@ -157,6 +172,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   ro?.disconnect();
   ro = null;
+  for (const t of frameTweens) t.kill();
+  frameTweens = [];
 });
 
 const revealedItems = computed(() =>
@@ -252,32 +269,46 @@ function previewRect(p: { x: number; y: number; w: number; h: number }): Record<
   };
 }
 
-/** Прямоугольники скрытых предметов, редкость которых раскрыта лично игроку */
-const rarityHintRects = computed(() => {
-  const hints = props.rarityHints ?? [];
-  if (hints.length === 0) return [];
-  const out: { itemId: string; rarity: Rarity; x: number; y: number; w: number; h: number }[] = [];
+interface HiddenRect { itemId: string; x: number; y: number; w: number; h: number }
+
+/** Прямоугольники всех нераскрытых предметов: closed-клетки, сгруппированные по itemId */
+function closedItemRects(): HiddenRect[] {
+  const out: HiddenRect[] = [];
+  const seen = new Set<string>();
   const w = props.board.w;
-  for (const h of hints) {
+  props.board.cells.forEach((c, idx) => {
+    if (c.kind !== 'closed' || !c.itemId || seen.has(c.itemId)) return;
+    seen.add(c.itemId);
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -1;
     let maxY = -1;
-    props.board.cells.forEach((c, idx) => {
-      if (c.kind === 'closed' && c.itemId === h.itemId) {
-        const x = idx % w;
-        const y = Math.floor(idx / w);
+    props.board.cells.forEach((c2, idx2) => {
+      if (c2.kind === 'closed' && c2.itemId === c.itemId) {
+        const x = idx2 % w;
+        const y = Math.floor(idx2 / w);
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
       }
     });
-    if (maxX >= 0) {
-      out.push({ itemId: h.itemId, rarity: h.rarity, x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 });
-    }
-  }
+    out.push({ itemId: c.itemId, x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 });
+  });
   return out;
+}
+
+/** Рамки всех нераскрытых предметов (по границе бегает полоса) */
+const hiddenRects = computed(() => closedItemRects());
+
+/** Прямоугольники скрытых предметов, редкость которых раскрыта лично игроку */
+const rarityHintRects = computed(() => {
+  const hints = props.rarityHints ?? [];
+  if (hints.length === 0) return [];
+  const ids = new Set(hints.map((h) => h.itemId));
+  return closedItemRects()
+    .filter((r) => ids.has(r.itemId))
+    .map((r) => ({ ...r, rarity: hints.find((h) => h.itemId === r.itemId)!.rarity }));
 });
 
 function hintRectStyle(r: { x: number; y: number; w: number; h: number; rarity: Rarity }): Record<string, string> {
@@ -295,6 +326,65 @@ function hintRectStyle(r: { x: number; y: number; w: number; h: number; rarity: 
     boxShadow: '0 0 calc(14px / var(--bs, 1)) ' + c + '55',
   };
 }
+
+const FRAME_R = 6;
+
+/** Размер рамки в пикселях сетки (клетки + промежутки) */
+function frameSize(r: HiddenRect): { w: number; h: number } {
+  return { w: r.w * CELL + (r.w - 1) * GAP, h: r.h * CELL + (r.h - 1) * GAP };
+}
+
+function frameRectStyle(r: HiddenRect): Record<string, string> {
+  return {
+    left: PAD + r.x * (CELL + GAP) + 'px',
+    top: PAD + r.y * (CELL + GAP) + 'px',
+  };
+}
+
+/** Периметр скруглённой рамки — чтобы цикл бегущей полосы был бесшовным */
+function framePerimeter(r: HiddenRect): number {
+  const s = frameSize(r);
+  return 2 * (s.w - 2 * FRAME_R) + 2 * (s.h - 2 * FRAME_R) + 2 * Math.PI * FRAME_R;
+}
+
+const frameEls = ref<SVGSVGElement[]>([]);
+let frameTweens: gsap.core.Tween[] = [];
+let lastFrameKeys = '';
+
+/** Запустить (или перезапустить) бегущую полосу на всех рамках */
+function syncFrames(): void {
+  for (const t of frameTweens) t.kill();
+  frameTweens = [];
+  const rects = hiddenRects.value;
+  frameEls.value.forEach((svg, i) => {
+    const r = rects[i];
+    if (!r) return;
+    const rect = svg.querySelector('rect');
+    if (!rect) return;
+    const p = framePerimeter(r);
+    const dash = Math.max(14, Math.round(p * 0.16));
+    rect.setAttribute('stroke-dasharray', dash + ' ' + (p - dash));
+    rect.setAttribute('stroke-dashoffset', '0');
+    frameTweens.push(
+      gsap.to(rect, {
+        strokeDashoffset: -p,
+        duration: 2.4,
+        ease: 'none',
+        repeat: -1,
+      }),
+    );
+  });
+}
+
+// перезапускаем полосу только когда состав рамок реально изменился
+watch(hiddenRects, () => {
+  const keys = hiddenRects.value
+    .map((r) => r.itemId + ':' + r.x + ':' + r.y + ':' + r.w + ':' + r.h)
+    .join('|');
+  if (keys === lastFrameKeys) return;
+  lastFrameKeys = keys;
+  void nextTick().then(syncFrames);
+});
 
 function cellClass(cell: PublicCell, idx: number): string {
   const cls = ['board-cell'];
@@ -364,6 +454,18 @@ function onItemClick(it: PublicItem): void {
 .rarity-hint {
   z-index: 15;
   animation: hint-pulse 1.6s ease-in-out infinite;
+}
+.hidden-frame {
+  z-index: 10;
+  overflow: visible;
+}
+.hidden-frame rect {
+  fill: none;
+  stroke: #38bdf8;
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.5));
 }
 @keyframes hint-pulse {
   0%, 100% { opacity: 0.65; }

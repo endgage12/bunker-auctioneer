@@ -97,6 +97,7 @@ body {
   50% { box-shadow: 0 0 18px 6px rgba(250, 204, 21, 0.9); }
 }
 .lot-open {
+  z-index: 11; /* выше бегущих рамок скрытых предметов (z 10), ниже подсказок (z 15) */
   animation: lot-glow 1.4s ease-in-out infinite;
 }
 

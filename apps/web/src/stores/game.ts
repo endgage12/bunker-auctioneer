@@ -90,8 +90,11 @@ export const useGameStore = defineStore('game', {
     useCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
       return this.emitAck(C2S.useCard, { cardId });
     },
-    sync(code: string): void {
-      this.socket?.emit(C2S.sync, { code });
+    sync(code: string): Promise<{ ok: boolean; error?: string }> {
+      if (!this.socket) {
+        return Promise.resolve({ ok: false, error: 'Нет соединения с сервером' });
+      }
+      return this.emitAck<{ ok: boolean; error?: string }>(C2S.sync, { code });
     },
     leave(): void {
       this.socket?.emit(C2S.leaveRoom);

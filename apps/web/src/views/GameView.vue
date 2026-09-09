@@ -146,7 +146,15 @@
       </div>
     </div>
   </div>
-  <div v-else class="h-screen flex items-center justify-center text-slate-400">Подключение…</div>
+  <div v-else class="h-screen flex flex-col items-center justify-center gap-4 px-4 text-center">
+    <template v-if="joinError">
+      <p class="text-sm text-slate-300">{{ joinError }}</p>
+      <button class="btn-primary" @click="goBack">Вернуться</button>
+    </template>
+    <template v-else>
+      <span class="text-slate-400">Подключение…</span>
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -172,6 +180,8 @@ const gameStore = useGameStore();
 
 const profile = ref<Profile | null>(null);
 const code = computed(() => String(route.params.code ?? ''));
+/** Ошибка подключения к комнате по неверной ссылке (показываем кнопку «Вернуться») */
+const joinError = ref('');
 
 const game = computed(() => gameStore.game);
 const meId = computed(() => auth.meId);
@@ -201,9 +211,22 @@ onMounted(async () => {
   profile.value = await auth.fetchMe();
   gameStore.attach();
   if (gameStore.game?.code !== code.value) {
-    gameStore.sync(code.value);
+    // сервер отвечает ack-ом (ок/ошибка); страховка от зависшего соединения — таймаут
+    const resp = await Promise.race([
+      gameStore.sync(code.value),
+      new Promise<{ ok: boolean; error?: string }>((resolve) =>
+        setTimeout(() => resolve({ ok: false, error: 'Не удалось подключиться к комнате' }), 8000),
+      ),
+    ]);
+    if (!resp.ok && !gameStore.game) {
+      joinError.value = resp.error ?? 'Комната не найдена';
+    }
   }
 });
+
+function goBack(): void {
+  router.replace('/');
+}
 
 function onAnte(amount: number): void {
   gameStore.ante(amount);

@@ -37,7 +37,7 @@
         Стоимость: <span class="text-amber-300 font-mono"><CoinAmount :value="value" /></span>
       </div>
       <div v-if="defRange" class="text-xs text-slate-400 mb-1">
-        Номинал каталога: <CoinAmount :value="defRange.minValue" /> – {{ fmt(defRange.maxValue) }}
+        Каталог: <CoinAmount :value="defRange.value" /> · {{ defRange.w }}×{{ defRange.h }}
       </div>
       <div v-if="w && h" class="text-xs text-slate-400">Размер: {{ w }}×{{ h }}</div>
     </PopoverContent>
@@ -47,7 +47,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { CSSProperties } from 'vue';
-import { fmt, RARITY_LABEL } from '@auctioneer/shared';
+import { RARITY_LABEL } from '@auctioneer/shared';
 import type { Rarity } from '@auctioneer/shared';
 import { RARITY_HEX } from '../lib/rarity';
 import { catalogDef, itemIconUrl } from '../lib/items';

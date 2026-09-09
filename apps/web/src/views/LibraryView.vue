@@ -143,7 +143,8 @@
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-baseline gap-x-2">
                         <span class="font-semibold text-sm" v-html="highlightHtml(def.name, normQuery)"></span>
-                        <span class="text-xs text-amber-300/90 font-mono"><CoinAmount :value="def.minValue" /> – {{ fmt(def.maxValue) }}</span>
+                        <span class="text-xs text-amber-300/90 font-mono"><CoinAmount :value="def.value" /></span>
+                        <span class="text-xs text-slate-400 font-mono">{{ def.w }}×{{ def.h }}</span>
                       </div>
                       <div class="text-xs text-slate-400 leading-relaxed mt-0.5" v-html="highlightHtml(def.desc, normQuery)"></div>
                     </div>
@@ -160,7 +161,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { ITEM_CATALOG, fmt } from '@auctioneer/shared';
+import { ITEM_CATALOG } from '@auctioneer/shared';
 import type { ItemDef } from '@auctioneer/shared';
 import { RARITY_HEX } from '../lib/rarity';
 import { itemIconUrl } from '../lib/items';

@@ -113,49 +113,69 @@ describe('Тайный Санта: хранилище', () => {
   });
 
   it('дроп, которому не хватило клеток, ждёт свободного места', () => {
-    // Math.random = 0.01 -> гранты: красные 1x1 (легко помещаются в ящик)
-    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    // Math.random = 0.5 -> дроп: синие «Шпалера с грифоном» 3x3 (9 клеток, 30 000).
+    // В ящик 9x9 помещается ровно 8 таких предметов (72 клетки).
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const user = db.findOrCreateDevUser('santa-overflow@test.dev', 'Санта2');
-    const granted: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const g = db.adminGrantItem('santa-overflow@test.dev', 'red-' + i);
-      expect(g.ok).toBe(true);
-      granted.push(g.item!.id);
-    }
-    // три вложения по ~161 400 -> сумма свыше 250 000 -> круг 60 секунд
-    for (const id of granted) {
+    const grantThree = (): string[] => {
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const g = db.adminGrantItem('santa-overflow@test.dev', 'red-7');
+        expect(g.ok).toBe(true);
+        ids.push(g.item!.id);
+      }
+      return ids;
+    };
+
+    // круг 1: три «Ядра вечности» по 2 234 350 -> сумма свыше 250 000 -> 60 секунд
+    for (const id of grantThree()) {
       expect(db.sacrificeToSanta(user.id, id).ok).toBe(true);
     }
-
-    // Math.random = 0.99 -> весь дроп: красные 5x5 (25 клеток),
-    // в ящике 9x9 помещается только один такой предмет — очередь детерминирована
-    spy.mockReturnValue(0.99);
     advance(61_000);
     let st = db.getSanta(user.id);
 
-    // 2 + floor(484200/100000) = 6 предметов дропа: один в ячейках, пять в очереди
-    expect(st.box.filter((b) => b.kind === 'reward')).toHaveLength(1);
-    expect(st.pending).toHaveLength(5);
-    expect(st.box[0].w).toBe(5);
-    expect(st.box[0].h).toBe(5);
+    // 8 предметов дропа (максимум): все 3x3, все помещаются в пустой ящик
+    expect(st.box.filter((b) => b.kind === 'reward')).toHaveLength(8);
+    expect(st.pending).toHaveLength(0);
+    expect(st.box[0].w).toBe(3);
+    expect(st.box[0].h).toBe(3);
 
-    // итог круга для модального окна: 3 вложенных красных -> 6 красных
-    const lc = st.lastCycle;
+    // итог круга 1: 3 вложенных «Ядра» -> 8 «Шпалер»
+    let lc = st.lastCycle;
     expect(lc).not.toBeNull();
     expect(lc!.itemsIn).toBe(3);
-    expect(lc!.valueIn).toBe(161_400 * 3);
-    expect(lc!.itemsOut).toBe(6);
-    expect(lc!.valueOut).toBe(298_600 * 6);
+    expect(lc!.valueIn).toBe(2_234_350 * 3);
+    expect(lc!.itemsOut).toBe(8);
+    expect(lc!.valueOut).toBe(30_000 * 8);
+
+    // круг 2: ещё три «Ядра» (1x1 помещаются в оставшиеся клетки).
+    // После удаления вложений свободно ровно 9 клеток — помещается одна шпалера,
+    // остальные 7 детерминированно уходят в очередь
+    for (const id of grantThree()) {
+      expect(db.sacrificeToSanta(user.id, id).ok).toBe(true);
+    }
+    advance(61_000);
+    st = db.getSanta(user.id);
+    expect(st.box.filter((b) => b.kind === 'reward')).toHaveLength(9);
+    expect(st.pending).toHaveLength(7);
+
+    // итог круга 2: 3 вложенных, 8 полученных (все в очереди)
+    lc = st.lastCycle;
+    expect(lc).not.toBeNull();
+    expect(lc!.itemsIn).toBe(3);
+    expect(lc!.valueIn).toBe(2_234_350 * 3);
+    expect(lc!.itemsOut).toBe(8);
+    expect(lc!.valueOut).toBe(30_000 * 8);
 
     // забираем размещённый дроп -> на его место встаёт следующий из очереди
     const takenId = st.box[0].id;
     expect(db.takeFromSanta(user.id, takenId).ok).toBe(true);
     st = db.getSanta(user.id);
-    expect(st.box.filter((b) => b.kind === 'reward')).toHaveLength(1);
-    expect(st.pending).toHaveLength(4);
+    expect(st.box.filter((b) => b.kind === 'reward')).toHaveLength(9);
+    expect(st.pending).toHaveLength(6);
 
-    // ничего не потерялось: 6 предметов дропа = 1 взятый + 1 в ячейках + 4 в очереди
-    expect(st.box.length + st.pending.length).toBe(5);
+    // ничего не потерялось: 16 предметов дропа = 1 взятый + 9 в ячейках + 6 в очереди
+    expect(st.box.length + st.pending.length).toBe(15);
     expect(db.getProfile(user.id)!.inventory.some((i) => i.id === takenId)).toBe(true);
   });
 });

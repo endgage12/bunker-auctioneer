@@ -17,7 +17,7 @@ export function itemIconUrl(defId?: string, name?: string): string | undefined {
   return ICON_URLS['../assets/items/' + id + '.png'];
 }
 
-/** Определение каталога по defId (для диапазона цены в подсказке) */
+/** Определение каталога по defId (для фиксированного номинала и размера в подсказке) */
 export function catalogDef(defId?: string, name?: string) {
   const id = defId ?? (name ? NAME_TO_DEF[name] : undefined);
   if (!id) return undefined;

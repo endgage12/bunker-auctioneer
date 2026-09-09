@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   generateSantaReward,
+  ITEM_CATALOG,
   mulberry32,
   RARITY_ORDER,
-  RARITY_VALUE_RANGE,
   SANTA_MAX_REWARDS,
   SANTA_MID_MAX,
   SANTA_MID_MIN,
@@ -101,18 +101,16 @@ describe('Тайный Санта: количество и генерация д
     expect(santaRewardCount(bonus, 5_000_000)).toBe(SANTA_MAX_REWARDS);
   });
 
-  it('предметы дропа корректны (редкость, стоимость, размеры, id каталога)', () => {
+  it('предметы дропа корректны (редкость, фиксированные стоимость и размеры, id каталога)', () => {
     const rng = mulberry32(42);
     for (const v of [10_000, 150_000, 500_000]) {
       for (let i = 0; i < 100; i++) {
         const it = generateSantaReward(rng, v);
-        const [min, max] = RARITY_VALUE_RANGE[it.rarity];
-        expect(it.value).toBeGreaterThanOrEqual(min);
-        expect(it.value).toBeLessThanOrEqual(max);
-        expect(it.w).toBeGreaterThanOrEqual(1);
-        expect(it.w).toBeLessThanOrEqual(5);
-        expect(it.h).toBeGreaterThanOrEqual(1);
-        expect(it.h).toBeLessThanOrEqual(5);
+        const def = ITEM_CATALOG.find((d) => d.id === it.defId);
+        expect(def).toBeDefined();
+        expect(it.value).toBe(def!.value);
+        expect(it.w).toBe(def!.w);
+        expect(it.h).toBe(def!.h);
         expect(it.defId).toMatch(/^(white|green|blue|purple|gold|red)-\d+$/);
       }
     }

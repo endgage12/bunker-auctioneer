@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from './config';
 import { generateStarterPack, mulberry32, START_CASH } from '@auctioneer/shared';
-import { generateSantaReward, INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_TTL_MS, RARITY_VALUE_RANGE, SANTA_COLS, SANTA_MIN_ITEMS, SANTA_ROWS, SETS, marketFee, randomDim, santaRewardCount, santaTimerMs } from '@auctioneer/shared';
+import { generateSantaReward, INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_TTL_MS, SANTA_COLS, SANTA_MIN_ITEMS, SANTA_ROWS, SETS, marketFee, santaRewardCount, santaTimerMs } from '@auctioneer/shared';
 import type {
   AdminBank,
   BankTx,
@@ -980,16 +980,14 @@ export function transmute(userId: string): MarketOpResult {
   const rarity: Rarity = Math.random() < 0.1 ? 'blue' : 'green';
   const pool = ITEM_CATALOG.filter((d) => d.rarity === rarity);
   const def = pool[Math.floor(Math.random() * pool.length)];
-  const [min, max] = RARITY_VALUE_RANGE[rarity];
-  const value = Math.round((min + Math.floor(Math.random() * (max - min + 1))) / 100) * 100;
   const newItem: ItemInstance = {
     id: crypto.randomUUID(),
     defId: def.id,
     name: def.name,
     rarity,
-    value,
-    w: randomDim(Math.random),
-    h: randomDim(Math.random),
+    value: def.value,
+    w: def.w,
+    h: def.h,
   };
   const slot = findFreeSlot(userId, newItem.w, newItem.h);
   if (!slot) return { ok: false, error: 'Нет места в инвентаре — освободите сетку' };
@@ -1016,16 +1014,14 @@ export function adminGrantItem(email: string, defId: string): MarketOpResult {
   if (!target) return { ok: false, error: 'Игрок не найден' };
   const def = ITEM_CATALOG.find((d) => d.id === defId);
   if (!def) return { ok: false, error: 'Предмет каталога не найден' };
-  const [min, max] = RARITY_VALUE_RANGE[def.rarity];
-  const value = Math.round((min + Math.floor(Math.random() * (max - min + 1))) / 100) * 100;
   const item: ItemInstance = {
     id: crypto.randomUUID(),
     defId: def.id,
     name: def.name,
     rarity: def.rarity,
-    value,
-    w: randomDim(Math.random),
-    h: randomDim(Math.random),
+    value: def.value,
+    w: def.w,
+    h: def.h,
   };
   const targetId = String(target.id);
   const slot = findFreeSlot(targetId, item.w, item.h);

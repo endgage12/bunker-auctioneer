@@ -7,7 +7,10 @@ const router = createRouter({
     { path: '/', name: 'lobby', component: () => import('./views/LobbyView.vue') },
     { path: '/market', name: 'market', component: () => import('./views/MarketView.vue') },
     { path: '/inventory', name: 'inventory', component: () => import('./views/InventoryView.vue') },
-    { path: '/hideout', name: 'hideout', component: () => import('./views/HideoutView.vue') },
+    { path: '/santa', name: 'santa', component: () => import('./views/SantaView.vue') },
+    { path: '/sets', name: 'sets', component: () => import('./views/HideoutView.vue') },
+    // старый адрес раздела «Убежище» — редирект на «Сеты»
+    { path: '/hideout', redirect: '/sets' },
     { path: '/library', name: 'library', component: () => import('./views/LibraryView.vue') },
     { path: '/admin', name: 'admin', component: () => import('./views/AdminView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },

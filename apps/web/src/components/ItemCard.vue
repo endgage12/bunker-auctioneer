@@ -5,7 +5,7 @@
         class="item-card-inner"
         :class="dense ? 'dense' : ''"
         :style="cardStyle"
-        @mouseenter="open = true"
+        @mouseenter="open = hoverable"
         @mouseleave="open = false"
         @focusin="open = true"
         @focusout="open = false"
@@ -71,6 +71,9 @@ const props = withDefaults(
 );
 
 const open = ref(false);
+
+/** На тач-устройствах hover-поповер не открываем: тап занят другими действиями */
+const hoverable = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
 
 const iconUrl = computed(() => itemIconUrl(props.defId, props.name));
 const defRange = computed(() => catalogDef(props.defId, props.name));

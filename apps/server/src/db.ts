@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from './config';
 import { generateStarterPack, mulberry32, START_CASH } from '@auctioneer/shared';
-import { INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_TTL_MS, RARITY_VALUE_RANGE, SETS, marketFee, randomDim } from '@auctioneer/shared';
+import { generateSantaReward, INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_TTL_MS, RARITY_VALUE_RANGE, SANTA_COLS, SANTA_MIN_ITEMS, SANTA_ROWS, SETS, marketFee, randomDim, santaRewardCount, santaTimerMs } from '@auctioneer/shared';
 import type {
   AdminBank,
   BankTx,
@@ -15,6 +15,8 @@ import type {
   MarketListing,
   Profile,
   Rarity,
+  SantaBoxItem,
+  SantaState,
   SetProgress,
 } from '@auctioneer/shared';
 import type { FinalReport } from './game/engine';
@@ -94,6 +96,30 @@ const SCHEMA = [
   '  set_id TEXT NOT NULL,',
   '  placed_at INTEGER NOT NULL',
   ');',
+  'CREATE TABLE IF NOT EXISTS santa_items (',
+  '  id TEXT PRIMARY KEY,',
+  '  user_id TEXT NOT NULL,',
+  '  def_id TEXT NOT NULL,',
+  '  name TEXT NOT NULL,',
+  '  rarity TEXT NOT NULL,',
+  '  value INTEGER NOT NULL,',
+  '  w INTEGER NOT NULL,',
+  '  h INTEGER NOT NULL,',
+  '  kind TEXT NOT NULL,',
+  '  pending INTEGER NOT NULL DEFAULT 0,',
+  '  x INTEGER,',
+  '  y INTEGER,',
+  '  created_at INTEGER NOT NULL',
+  ');',
+  'CREATE TABLE IF NOT EXISTS santa_cycles (',
+  '  id TEXT PRIMARY KEY,',
+  '  user_id TEXT NOT NULL,',
+  '  completed_at INTEGER NOT NULL,',
+  '  items_in INTEGER NOT NULL,',
+  '  value_in INTEGER NOT NULL,',
+  '  items_out INTEGER NOT NULL,',
+  '  value_out INTEGER NOT NULL',
+  ');',
   'CREATE TABLE IF NOT EXISTS bank_transactions (',
   '  id TEXT PRIMARY KEY,',
   '  at INTEGER NOT NULL,',
@@ -116,6 +142,8 @@ const SCHEMA = [
   ');',
   'CREATE INDEX IF NOT EXISTS idx_items_user ON items(user_id);',
   'CREATE INDEX IF NOT EXISTS idx_market_history_user ON market_history(user_id);',
+  'CREATE INDEX IF NOT EXISTS idx_santa_items_user ON santa_items(user_id);',
+  'CREATE INDEX IF NOT EXISTS idx_santa_cycles_user ON santa_cycles(user_id);',
 ].join('\n');
 
 db.exec(SCHEMA);
@@ -884,5 +912,271 @@ export function adminGrantItem(email: string, defId: string): MarketOpResult {
   ).run(item.id, targetId, item.defId, item.name, item.rarity, item.value, item.w, item.h, slot.x, slot.y, Date.now());
   houseAdjust(0, 'admin_item', targetId, 'Выдача предмета «' + item.name + '» админом');
   return { ok: true, item };
+}
+
+// ---------- Тайный Санта ----------
+
+function santaRows(userId: string): Row[] {
+  return db.prepare('SELECT * FROM santa_items WHERE user_id = ?').all(userId) as unknown as Row[];
+}
+
+/** Занятые клетки ящика 9x9 (вложения и размещённый дроп) */
+function santaOccupancy(userId: string, excludeId?: string): Set<string> {
+  const occ = new Set<string>();
+  for (const r of santaRows(userId)) {
+    if (r.pending) continue;
+    if (excludeId && String(r.id) === excludeId) continue;
+    const x = Number(r.x);
+    const y = Number(r.y);
+    for (let dy = 0; dy < Number(r.h); dy++) {
+      for (let dx = 0; dx < Number(r.w); dx++) occ.add(x + dx + ',' + (y + dy));
+    }
+  }
+  return occ;
+}
+
+/**
+ * Текущий круг: сумма вложений и момент дропа.
+ * Круг запускается только после SANTA_MIN_ITEMS вложений (анти-абуз):
+ * пока вложено меньше, deadline = null и дроп не произойдёт.
+ */
+function santaCycle(userId: string): { value: number; count: number; deadline: number | null } | null {
+  const rows = db
+    .prepare("SELECT value, created_at FROM santa_items WHERE user_id = ? AND kind = 'sacrifice'")
+    .all(userId) as unknown as Row[];
+  if (rows.length === 0) return null;
+  let value = 0;
+  let lastAt = 0;
+  for (const r of rows) {
+    value += Number(r.value);
+    lastAt = Math.max(lastAt, Number(r.created_at));
+  }
+  if (rows.length < SANTA_MIN_ITEMS) return { value, count: rows.length, deadline: null };
+  return { value, count: rows.length, deadline: lastAt + santaTimerMs(value) };
+}
+
+/** Первое свободное место в ящике 9x9 для предмета w x h (null — места нет) */
+function findFreeSantaSlot(userId: string, w: number, h: number): { x: number; y: number } | null {
+  if (w > SANTA_COLS || h > SANTA_ROWS) return null;
+  const occ = santaOccupancy(userId);
+  const fits = (x: number, y: number): boolean => {
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (x + dx >= SANTA_COLS || y + dy >= SANTA_ROWS) return false;
+        if (occ.has(x + dx + ',' + (y + dy))) return false;
+      }
+    }
+    return true;
+  };
+  for (let y = 0; y < SANTA_ROWS; y++) {
+    for (let x = 0; x < SANTA_COLS; x++) {
+      if (fits(x, y)) return { x, y };
+    }
+  }
+  return null;
+}
+
+/** Разместить дроп, ожидающий свободных клеток; вернуть число размещённых предметов */
+function placePendingSantaRewards(userId: string): number {
+  const pending = db
+    .prepare('SELECT * FROM santa_items WHERE user_id = ? AND pending = 1 ORDER BY created_at ASC, rowid ASC')
+    .all(userId) as unknown as Row[];
+  let placed = 0;
+  const upd = db.prepare('UPDATE santa_items SET x = ?, y = ?, pending = 0 WHERE id = ?');
+  for (const r of pending) {
+    const slot = findFreeSantaSlot(userId, Number(r.w), Number(r.h));
+    if (slot) {
+      upd.run(slot.x, slot.y, String(r.id));
+      placed++;
+    }
+  }
+  return placed;
+}
+
+/**
+ * Завершить истёкший круг: вложения исчезают, в ящик падает случайный дроп,
+ * итог круга (вложено/получено) записывается в журнал для модального окна.
+ */
+function settleSantaCycle(userId: string): void {
+  const cycle = santaCycle(userId);
+  if (!cycle || cycle.deadline === null || Date.now() < cycle.deadline) return;
+  const rng = Math.random;
+  const count = santaRewardCount(rng, cycle.value);
+  const ins = db.prepare(
+    "INSERT INTO santa_items (id, user_id, def_id, name, rarity, value, w, h, kind, pending, x, y, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reward', 1, NULL, NULL, ?)",
+  );
+  const insCycle = db.prepare(
+    'INSERT INTO santa_cycles (id, user_id, completed_at, items_in, value_in, items_out, value_out) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  );
+  db.exec('BEGIN');
+  try {
+    const rewards: { value: number }[] = [];
+    db.prepare("DELETE FROM santa_items WHERE user_id = ? AND kind = 'sacrifice'").run(userId);
+    for (let i = 0; i < count; i++) {
+      const it = generateSantaReward(rng, cycle.value);
+      rewards.push(it);
+      ins.run(it.id, userId, it.defId, it.name, it.rarity, it.value, it.w, it.h, Date.now());
+    }
+    const valueOut = rewards.reduce((s, it) => s + it.value, 0);
+    insCycle.run(crypto.randomUUID(), userId, Date.now(), cycle.count, cycle.value, rewards.length, valueOut);
+    // храним только последние 20 кругов на игрока
+    db.prepare(
+      'DELETE FROM santa_cycles WHERE user_id = ? AND id NOT IN (SELECT id FROM santa_cycles WHERE user_id = ? ORDER BY completed_at DESC, rowid DESC LIMIT 20)',
+    ).run(userId, userId);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  placePendingSantaRewards(userId);
+}
+
+function mapSantaRow(r: Row): SantaBoxItem {
+  return {
+    id: String(r.id),
+    defId: String(r.def_id),
+    name: String(r.name),
+    rarity: String(r.rarity) as Rarity,
+    value: Number(r.value),
+    w: Number(r.w),
+    h: Number(r.h),
+    kind: String(r.kind) as SantaBoxItem['kind'],
+    x: r.x == null ? undefined : Number(r.x),
+    y: r.y == null ? undefined : Number(r.y),
+  };
+}
+
+/** Состояние ящика Тайного Санты (круг завершается лениво — при обращении) */
+export function getSanta(userId: string): SantaState {
+  settleSantaCycle(userId);
+  placePendingSantaRewards(userId);
+  const cycle = santaCycle(userId);
+  const rows = santaRows(userId);
+  const last = db
+    .prepare('SELECT * FROM santa_cycles WHERE user_id = ? ORDER BY completed_at DESC, rowid DESC LIMIT 1')
+    .get(userId) as Row | undefined;
+  return {
+    box: rows.filter((r) => !r.pending).map(mapSantaRow),
+    pending: rows.filter((r) => !!r.pending).map(mapSantaRow),
+    poolValue: cycle?.value ?? 0,
+    deadline: cycle?.deadline ?? null,
+    lastCycle: last
+      ? {
+          id: String(last.id),
+          at: Number(last.completed_at),
+          itemsIn: Number(last.items_in),
+          valueIn: Number(last.value_in),
+          itemsOut: Number(last.items_out),
+          valueOut: Number(last.value_out),
+        }
+      : null,
+  };
+}
+
+/**
+ * Безвозвратно вложить предмет из инвентаря в ящик.
+ * x/y — клетка в сетке 9x9; если не заданы, сервер найдёт место сам.
+ */
+export function sacrificeToSanta(userId: string, itemId: string, x?: number, y?: number): MarketOpResult {
+  settleSantaCycle(userId);
+  placePendingSantaRewards(userId);
+  const item = db
+    .prepare('SELECT * FROM items WHERE id = ? AND user_id = ? AND game_id IS NULL')
+    .get(itemId, userId) as Row | undefined;
+  if (!item) return { ok: false, error: 'Предмет недоступен для вложения' };
+  const listed = db.prepare('SELECT 1 AS e FROM market_listings WHERE item_id = ?').get(itemId);
+  if (listed) return { ok: false, error: 'Сначала снимите предмет с барахолки' };
+  const shown = db.prepare('SELECT 1 AS e FROM showcase_items WHERE item_id = ?').get(itemId);
+  if (shown) return { ok: false, error: 'Сначала уберите предмет из витрины' };
+  const w = Number(item.w);
+  const h = Number(item.h);
+  let target: { x: number; y: number } | null = null;
+  if (x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y)) {
+    target = findFreeSantaSlot(userId, w, h);
+  } else {
+    const fx = Math.floor(x);
+    const fy = Math.floor(y);
+    if (fx < 0 || fy < 0 || fx + w > SANTA_COLS || fy + h > SANTA_ROWS) {
+      return { ok: false, error: 'Некорректная позиция в ящике' };
+    }
+    const occ = santaOccupancy(userId);
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (occ.has(fx + dx + ',' + (fy + dy))) return { ok: false, error: 'Место в ящике занято' };
+      }
+    }
+    target = { x: fx, y: fy };
+  }
+  if (!target) return { ok: false, error: 'Нет свободного места в ящике' };
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM items WHERE id = ?').run(itemId);
+    db.prepare(
+      "INSERT INTO santa_items (id, user_id, def_id, name, rarity, value, w, h, kind, pending, x, y, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sacrifice', 0, ?, ?, ?)",
+    ).run(itemId, userId, String(item.def_id), String(item.name), String(item.rarity), Number(item.value), w, h, target.x, target.y, Date.now());
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return { ok: true, value: Number(item.value) };
+}
+
+/**
+ * Забрать выпавший предмет из ящика в инвентарь.
+ * x/y — клетка в сетке инвентаря 12x24; если не заданы, сервер найдёт место сам.
+ */
+export function takeFromSanta(userId: string, itemId: string, x?: number, y?: number): MarketOpResult {
+  settleSantaCycle(userId);
+  placePendingSantaRewards(userId);
+  const row = db.prepare('SELECT * FROM santa_items WHERE id = ? AND user_id = ?').get(itemId, userId) as Row | undefined;
+  if (!row) return { ok: false, error: 'Предмет не найден в ящике' };
+  if (String(row.kind) !== 'reward' || Number(row.pending) === 1) {
+    return { ok: false, error: 'Этот предмет ещё нельзя забрать' };
+  }
+  const w = Number(row.w);
+  const h = Number(row.h);
+  let target: { x: number; y: number } | null = null;
+  if (x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y)) {
+    target = findFreeSlot(userId, w, h);
+  } else {
+    const fx = Math.floor(x);
+    const fy = Math.floor(y);
+    if (fx < 0 || fy < 0 || fx + w > INV_COLS || fy + h > INV_ROWS) {
+      return { ok: false, error: 'Некорректная позиция в инвентаре' };
+    }
+    const occ = inventoryOccupancy(userId);
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (occ.has(fx + dx + ',' + (fy + dy))) return { ok: false, error: 'Место в инвентаре занято' };
+      }
+    }
+    target = { x: fx, y: fy };
+  }
+  if (!target) return { ok: false, error: 'Нет места в инвентаре — освободите сетку' };
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM santa_items WHERE id = ?').run(itemId);
+    db.prepare(
+      'INSERT INTO items (id, user_id, def_id, name, rarity, value, w, h, game_id, inv_x, inv_y, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
+    ).run(itemId, userId, String(row.def_id), String(row.name), String(row.rarity), Number(row.value), w, h, target.x, target.y, Date.now());
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  placePendingSantaRewards(userId);
+  return {
+    ok: true,
+    item: {
+      id: itemId,
+      defId: String(row.def_id),
+      name: String(row.name),
+      rarity: String(row.rarity) as Rarity,
+      value: Number(row.value),
+      w,
+      h,
+    },
+  };
 }
 

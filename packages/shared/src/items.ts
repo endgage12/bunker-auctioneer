@@ -138,7 +138,7 @@ export const PRIZE_RARITY: Record<Rarity, number> = {
   white: 26, green: 24, blue: 20, purple: 15, gold: 10, red: 5,
 };
 
-function pickRarity(rng: () => number, weights: Record<Rarity, number>): Rarity {
+export function pickRarity(rng: () => number, weights: Record<Rarity, number>): Rarity {
   const entries = Object.entries(weights) as [Rarity, number][];
   const total = entries.reduce((s, [, w]) => s + w, 0);
   let r = rng() * total;

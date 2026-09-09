@@ -21,27 +21,11 @@
             <div
               v-for="it in inventory"
               :key="it.id"
-              class="w-24 h-24 rounded-lg overflow-hidden cursor-pointer transition ring-2"
-              :class="it.id === selectedId ? 'ring-amber-400' : 'ring-transparent hover:ring-slate-500'"
+              class="w-24 h-24 rounded-lg overflow-hidden cursor-pointer transition ring-2 ring-transparent hover:ring-slate-500"
               :title="it.name + ' ' + it.w + 'x' + it.h + ' — номинал ' + fmt(it.value)"
-              @click="select(it.id)"
+              @click="openItem(it)"
             >
               <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
-            </div>
-          </div>
-          <div v-if="selected" class="mt-4 border-t border-slate-800 pt-3">
-            <div class="text-sm mb-3">
-              <b>{{ selected.name }}</b> · {{ selected.w }}×{{ selected.h }} · номинал
-              <span class="text-amber-300 font-mono">{{ fmt(selected.value) }}</span>
-            </div>
-            <button class="btn-ghost" @click="sellToVendor(selected.id)">
-              Продать торговцу за {{ fmt(selected.value) }}
-            </button>
-            <div class="flex flex-wrap gap-2 items-center mt-3">
-              <input v-model.number="price" type="number" min="1" class="input-price" placeholder="Цена" />
-              <button class="btn-primary" :disabled="!price || price < 1" @click="listItem(selected.id)">
-                Выставить на барахолку
-              </button>
             </div>
           </div>
         </div>
@@ -151,19 +135,74 @@
         </div>
       </div>
     </div>
+
+    <!-- модалка действий с предметом -->
+    <Dialog v-model:open="dialogOpen">
+      <DialogContent>
+        <template v-if="modalItem">
+          <DialogHeader class="pr-8">
+            <DialogTitle>{{ modalItem.name }}</DialogTitle>
+          </DialogHeader>
+          <div class="mt-3 flex items-center gap-3">
+            <div class="w-16 h-16 rounded-lg overflow-hidden shrink-0">
+              <ItemCard :name="modalItem.name" :rarity="modalItem.rarity" :value="modalItem.value" :def-id="modalItem.defId" dense />
+            </div>
+            <div class="text-sm text-slate-400 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-full shrink-0" :style="{ background: RARITY_HEX[modalItem.rarity] }"></span>
+                <span>{{ RARITY_LABEL[modalItem.rarity] }}</span>
+              </div>
+              <div class="mt-1">
+                размер {{ modalItem.w }}×{{ modalItem.h }} · номинал
+                <span class="text-amber-300 font-mono">{{ fmt(modalItem.value) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn-ghost w-full mt-4" @click="sellToVendor(modalItem.id)">
+            Продать торговцу за {{ fmt(modalItem.value) }}
+          </button>
+
+          <div class="h-px bg-slate-800 my-4"></div>
+
+          <div class="flex gap-2">
+            <input
+              v-model.number="price"
+              type="number"
+              min="1"
+              class="input-dark"
+              placeholder="Цена"
+              @keyup.enter="listItem(modalItem.id)"
+            />
+            <button
+              class="btn-primary shrink-0"
+              :disabled="!price || price < 1"
+              @click="listItem(modalItem.id)"
+            >
+              Выставить на барахолку
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">Комиссия дома с продажи — 5%</p>
+        </template>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { fmt, RARITY_LABEL, RARITY_ORDER } from '@auctioneer/shared';
-import type { HideoutState, MarketHistoryEntry, MarketListing, Profile, Rarity } from '@auctioneer/shared';
+import type { HideoutState, InventoryRow, MarketHistoryEntry, MarketListing, Profile, Rarity } from '@auctioneer/shared';
 import { get, post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import { RARITY_HEX } from '../lib/rarity';
 import TopNav from '../components/TopNav.vue';
 import ItemCard from '../components/ItemCard.vue';
+import Dialog from '../components/ui/dialog/Dialog.vue';
+import DialogContent from '../components/ui/dialog/DialogContent.vue';
+import DialogHeader from '../components/ui/dialog/DialogHeader.vue';
+import DialogTitle from '../components/ui/dialog/DialogTitle.vue';
 
 const auth = useAuthStore();
 const game = useGameStore();
@@ -172,14 +211,14 @@ const profile = ref<Profile | null>(null);
 const listings = ref<MarketListing[]>([]);
 const hideout = ref<HideoutState | null>(null);
 const history = ref<MarketHistoryEntry[]>([]);
-const selectedId = ref<string | null>(null);
+const dialogOpen = ref(false);
+const modalItem = ref<InventoryRow | null>(null);
 const price = ref(0);
 const search = ref('');
 const rarityFilter = ref<Rarity | null>(null);
 
 const inventory = computed(() => profile.value?.inventory ?? []);
 const inventoryValue = computed(() => inventory.value.reduce((s, i) => s + i.value, 0));
-const selected = computed(() => inventory.value.find((i) => i.id === selectedId.value) ?? null);
 const myListings = computed(() => listings.value.filter((l) => l.mine));
 const filteredListings = computed(() => {
   const q = search.value.trim().toLowerCase();
@@ -216,15 +255,17 @@ function setNeedBadge(l: MarketListing): string | null {
   return null;
 }
 
-function select(id: string): void {
-  selectedId.value = selectedId.value === id ? null : id;
+function openItem(it: InventoryRow): void {
+  modalItem.value = it;
+  price.value = it.value;
+  dialogOpen.value = true;
 }
 
 async function sellToVendor(itemId: string): Promise<void> {
   try {
     const r = await post<{ ok: boolean; value: number }>('/api/items/sell', { itemId });
     game.pushToast('Продано торговцу за ' + fmt(r.value));
-    selectedId.value = null;
+    dialogOpen.value = false;
     await refresh();
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
@@ -232,10 +273,11 @@ async function sellToVendor(itemId: string): Promise<void> {
 }
 
 async function listItem(itemId: string): Promise<void> {
+  if (!price.value || price.value < 1) return;
   try {
-    await post('/api/market/list', { itemId, price: price.value });
+    await post('/api/market/list', { itemId, price: Math.floor(price.value) });
     game.pushToast('Предмет выставлен на барахолку');
-    selectedId.value = null;
+    dialogOpen.value = false;
     price.value = 0;
     await refresh();
   } catch (e) {

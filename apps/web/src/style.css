@@ -63,7 +63,7 @@ body {
     @apply bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400 w-36;
   }
   .nav-link {
-    @apply px-3 py-1.5 rounded-md text-sm text-slate-300 hover:text-white hover:bg-slate-800 transition;
+    @apply px-3 py-1.5 rounded-md text-sm text-slate-300 hover:text-white hover:bg-slate-800 transition whitespace-nowrap shrink-0;
   }
   .nav-link-active {
     @apply bg-slate-800 text-white;

@@ -4,7 +4,7 @@
     <div class="max-w-6xl mx-auto p-6">
       <div class="flex items-end justify-between mb-6">
         <div>
-          <h1 class="text-xl font-bold">Убежище</h1>
+          <h1 class="text-xl font-bold">Сеты</h1>
           <p class="text-sm text-slate-400">
             Собирайте тематические сеты предметов в витринах — они дают постоянные бонусы.
           </p>

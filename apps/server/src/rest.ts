@@ -106,6 +106,35 @@ export function createRestRouter(): Router {
     res.json({ ok: true });
   });
 
+  // ---------- Тайный Санта ----------
+
+  r.get('/api/santa', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    res.json(db.getSanta(userId));
+  });
+
+  r.post('/api/santa/sacrifice', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const body = (req.body ?? {}) as { itemId?: string; x?: number; y?: number };
+    const result = db.sacrificeToSanta(userId, String(body.itemId ?? ''), body.x, body.y);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  r.post('/api/santa/take', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const body = (req.body ?? {}) as { itemId?: string; x?: number; y?: number };
+    const result = db.takeFromSanta(userId, String(body.itemId ?? ''), body.x, body.y);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
   r.get('/api/debug/rooms', (_req, res) => {
     if (!config.allowDevLogin) {
       res.status(404).json({ error: 'Not found' });

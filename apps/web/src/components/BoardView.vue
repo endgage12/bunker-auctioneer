@@ -15,12 +15,13 @@
           :style="gridStyle"
           @mouseleave="hoverIdx = -1"
         >
-          <!-- ячейки 64x64 -->
+          <!-- ячейки 64x64 (каждая занимает строго свою клетку) -->
           <div
             v-for="(cell, idx) in board.cells"
             :key="'c' + idx"
             class="board-cell"
             :class="cellClass(cell, idx)"
+            :style="cellStyle(idx)"
             @click="onCellClick(idx)"
             @mouseenter="hoverIdx = idx"
           ></div>
@@ -218,6 +219,20 @@ function itemStyle(it: PublicItem): Record<string, string> {
   return {
     gridColumn: (it.x ?? 0) + 1 + ' / span ' + (it.w ?? 1),
     gridRow: (it.y ?? 0) + 1 + ' / span ' + (it.h ?? 1),
+  };
+}
+
+/**
+ * Каждая ячейка занимает строго свою клетку сетки.
+ * Без явного позиционирования авто-размещение CSS Grid сдвигает ячейки
+ * после первого раскрытого предмета (он занимает свои клетки), и
+ * закрытые клетки перестают совпадать с реальным местом предмета.
+ */
+function cellStyle(idx: number): Record<string, string> {
+  const w = props.board.w || 1;
+  return {
+    gridColumn: String((idx % w) + 1),
+    gridRow: String(Math.floor(idx / w) + 1),
   };
 }
 
@@ -427,6 +442,7 @@ function onItemClick(it: PublicItem): void {
   overflow: hidden;
 }
 .board-cell {
+  position: relative;
   width: 64px;
   height: 64px;
   background: #0f172a;
@@ -434,10 +450,35 @@ function onItemClick(it: PublicItem): void {
   border-radius: 2px;
   transition: background 0.15s ease;
 }
+/* «Стекло» в стиле iOS: полупрозрачная плитка, блик по верхней кромке, лёгкое размытие */
 .board-cell.cell-closed {
-  background: #111827;
-  background-image: radial-gradient(circle, #334155 1px, transparent 1.5px);
-  background-size: 8px 8px;
+  background: linear-gradient(
+    145deg,
+    rgba(226, 232, 240, 0.18) 0%,
+    rgba(148, 163, 184, 0.08) 50%,
+    rgba(226, 232, 240, 0.14) 100%
+  );
+  border: 1px solid rgba(226, 232, 240, 0.25);
+  border-radius: 6px;
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    inset 0 -1px 1px rgba(2, 6, 23, 0.45),
+    0 1px 3px rgba(2, 6, 23, 0.4);
+}
+.board-cell.cell-closed::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 5px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.03) 42%,
+    rgba(255, 255, 255, 0) 60%
+  );
+  pointer-events: none;
 }
 .board-cell.cell-hover-ok {
   background: rgba(52, 211, 153, 0.3);

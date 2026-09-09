@@ -157,8 +157,8 @@
           </DialogTitle>
         </DialogHeader>
         <p v-if="hiddenModal" class="text-xs text-slate-400 mt-1">
-          Под этой плиткой лежит один из {{ hiddenCandidates.length }} предметов каталога
-          с размером {{ hiddenModal.w }}×{{ hiddenModal.h }}:
+          Под этой плиткой лежит один из {{ hiddenCandidates.length }} предметов каталога,
+          помещающихся в размер {{ hiddenModal.w }}×{{ hiddenModal.h }} (с учётом поворота):
         </p>
         <div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3 max-h-80 overflow-y-auto pr-1">
           <div
@@ -171,7 +171,7 @@
               <ItemCard :name="d.name" :rarity="d.rarity" :def-id="d.id" :value="d.value" dense :show-value="false" />
             </div>
             <div class="text-[9px] text-slate-400 text-center mt-1 leading-tight w-full truncate">
-              <CoinAmount :value="d.value" />
+              {{ d.w }}×{{ d.h }} · <CoinAmount :value="d.value" />
             </div>
           </div>
         </div>
@@ -236,8 +236,9 @@ const hiddenModalOpen = computed({
 const hiddenCandidates = computed(() => {
   const m = hiddenModal.value;
   if (!m) return [];
+  // предметы ложатся на стол с возможным поворотом, поэтому учитываем оба варианта
   return ITEM_CATALOG
-    .filter((d) => d.w === m.w && d.h === m.h)
+    .filter((d) => (d.w === m.w && d.h === m.h) || (d.w === m.h && d.h === m.w))
     .sort((a, b) => a.value - b.value);
 });
 

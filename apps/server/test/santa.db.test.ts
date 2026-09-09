@@ -113,9 +113,10 @@ describe('Тайный Санта: хранилище', () => {
   });
 
   it('дроп, которому не хватило клеток, ждёт свободного места', () => {
-    // Math.random = 0.5 -> дроп: синие «Шпалера с грифоном» 3x3 (9 клеток, 30 000).
-    // В ящик 9x9 помещается ровно 8 таких предметов (72 клетки).
-    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    // Math.random = 0.45 -> редкость blue (веса на максимуме шкалы),
+    // а среди 11 синих предметов floor(0.45 * 11) = 4 -> «Шпалера с грифоном» 3x3
+    // (9 клеток, 30 000). В ящик 9x9 помещается ровно 8 таких предметов (72 клетки).
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.45);
     const user = db.findOrCreateDevUser('santa-overflow@test.dev', 'Санта2');
     const grantThree = (): string[] => {
       const ids: string[] = [];

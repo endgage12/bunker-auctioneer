@@ -341,7 +341,8 @@ export class Game {
 
   /**
    * Упаковка предметов на столе: лежат вплотную друг к другу,
-   * начиная с левого нижнего угла (нижние ряды первыми, слева направо).
+   * начиная с правого верхнего угла (ряды справа налево, сверху вниз) —
+   * на телефоне первые предметы видны сразу, без прокрутки до низа стола.
    * Ориентация — случайная, при неудаче пробуется повёрнутая.
    */
   private tryPlaceItem(item: ItemInstance): boolean {
@@ -350,8 +351,8 @@ export class Game {
         ? [[item.w, item.h], [item.h, item.w]]
         : [[item.h, item.w], [item.w, item.h]];
     for (const [w, h] of dims) {
-      for (let y = GRID_H - h; y >= 0; y--) {
-        for (let x = 0; x + w <= GRID_W; x++) {
+      for (let y = 0; y + h <= GRID_H; y++) {
+        for (let x = GRID_W - w; x >= 0; x--) {
           if (this.overlapsPlaced(x, y, w, h)) continue;
           this.placed.push({ it: item, x, y, w, h, revealed: false });
           return true;

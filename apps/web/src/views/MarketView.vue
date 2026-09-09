@@ -1,0 +1,306 @@
+<template>
+  <div class="min-h-screen">
+    <TopNav />
+    <div class="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+      <!-- Мой инвентарь -->
+      <div class="lg:col-span-2 flex flex-col gap-6">
+        <div class="panel p-5">
+          <div class="flex items-center justify-between mb-1">
+            <h2 class="font-semibold">Мой инвентарь</h2>
+            <span class="text-xs text-slate-400">
+              {{ inventory.length }} предм. ·
+              <span class="text-amber-300 font-mono">{{ fmt(inventoryValue) }}</span>
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4">
+            Номинал предмета — цена мгновенной продажи торговцу.
+            На барахолке можно выставить любую цену (комиссия дома 5%).
+          </p>
+          <div v-if="inventory.length === 0" class="text-sm text-slate-500">Инвентарь пуст</div>
+          <div class="flex flex-wrap gap-2">
+            <div
+              v-for="it in inventory"
+              :key="it.id"
+              class="w-24 h-24 rounded-lg overflow-hidden cursor-pointer transition ring-2"
+              :class="it.id === selectedId ? 'ring-amber-400' : 'ring-transparent hover:ring-slate-500'"
+              :title="it.name + ' ' + it.w + 'x' + it.h + ' — номинал ' + fmt(it.value)"
+              @click="select(it.id)"
+            >
+              <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
+            </div>
+          </div>
+          <div v-if="selected" class="mt-4 border-t border-slate-800 pt-3">
+            <div class="text-sm mb-3">
+              <b>{{ selected.name }}</b> · {{ selected.w }}×{{ selected.h }} · номинал
+              <span class="text-amber-300 font-mono">{{ fmt(selected.value) }}</span>
+            </div>
+            <button class="btn-ghost" @click="sellToVendor(selected.id)">
+              Продать торговцу за {{ fmt(selected.value) }}
+            </button>
+            <div class="flex flex-wrap gap-2 items-center mt-3">
+              <input v-model.number="price" type="number" min="1" class="input-price" placeholder="Цена" />
+              <button class="btn-primary" :disabled="!price || price < 1" @click="listItem(selected.id)">
+                Выставить на барахолку
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Мои лоты -->
+        <div class="panel p-5">
+          <h2 class="font-semibold mb-3">Мои лоты ({{ myListings.length }})</h2>
+          <div v-if="myListings.length === 0" class="text-sm text-slate-500">Вы ничего не выставили</div>
+          <div v-else class="flex flex-col gap-2">
+            <div v-for="l in myListings" :key="l.id" class="flex items-center gap-3 px-2 py-1.5 rounded-lg bg-slate-800/40">
+              <div class="w-12 h-12 rounded overflow-hidden shrink-0">
+                <ItemCard :name="l.item.name" :rarity="l.item.rarity" :def-id="l.item.defId" dense :show-value="false" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm truncate">{{ l.item.name }}</div>
+                <div class="text-xs text-slate-400">
+                  цена: <span class="text-amber-300 font-mono">{{ fmt(l.price) }}</span> · истекает {{ expires(l) }}
+                </div>
+              </div>
+              <button class="btn-small" @click="cancelLot(l.id)">Снять</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- История операций -->
+        <div class="panel p-5">
+          <h2 class="font-semibold mb-3">История операций</h2>
+          <div v-if="history.length === 0" class="text-sm text-slate-500">
+            Пока пусто — покупайте и продавайте на барахолке
+          </div>
+          <div v-else class="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
+            <div v-for="h in history" :key="h.id" class="flex items-center gap-3 px-2 py-1.5 rounded-lg bg-slate-800/40">
+              <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0" :class="historyKindClass(h.kind)">
+                {{ historyKindLabel(h.kind) }}
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm truncate" :style="{ color: RARITY_HEX[h.rarity] }">{{ h.itemName }}</div>
+                <div class="text-[11px] text-slate-500 truncate">{{ counterpartText(h) }}</div>
+              </div>
+              <div class="text-right shrink-0">
+                <div class="text-xs font-mono" :class="h.kind === 'buy' ? 'text-rose-300' : 'text-emerald-300'">
+                  {{ h.kind === 'buy' ? '−' : '+' }}{{ fmt(h.price) }}
+                </div>
+                <div v-if="h.kind === 'sell' && h.fee > 0" class="text-[10px] text-slate-500">комиссия −{{ fmt(h.fee) }}</div>
+                <div class="text-[10px] text-slate-500">{{ fmtTime(h.at) }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Барахолка -->
+      <div class="lg:col-span-3 panel p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold">Барахолка</h2>
+          <span class="text-xs text-slate-400">лотов: {{ filteredListings.length }}</span>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-3 mb-4">
+          <input v-model="search" class="input-dark sm:max-w-xs" placeholder="Поиск по названию или продавцу…" />
+          <div class="flex flex-wrap gap-1 items-center">
+            <button
+              v-for="r in RARITY_ORDER"
+              :key="r"
+              class="text-[11px] px-2 py-1 rounded-full border transition"
+              :style="rarityChip(r)"
+              @click="toggleRarity(r)"
+            >
+              {{ RARITY_LABEL[r] }}
+            </button>
+          </div>
+        </div>
+        <div v-if="filteredListings.length === 0" class="text-sm text-slate-500">Лотов не найдено</div>
+        <div class="flex flex-col gap-2 max-h-[62vh] overflow-y-auto pr-1">
+          <div
+            v-for="l in filteredListings"
+            :key="l.id"
+            class="flex items-center gap-3 px-2 py-2 rounded-lg bg-slate-800/40"
+          >
+            <div class="w-14 h-14 rounded overflow-hidden shrink-0">
+              <ItemCard :name="l.item.name" :rarity="l.item.rarity" :value="l.item.value" :def-id="l.item.defId" dense />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm truncate">
+                {{ l.item.name }}
+                <span class="text-slate-500 text-xs">{{ l.item.w }}×{{ l.item.h }}</span>
+                <span
+                  v-if="setNeedBadge(l)"
+                  class="text-[9px] px-1 ml-1 rounded bg-violet-500/20 text-violet-300"
+                >
+                  для сета «{{ setNeedBadge(l) }}»
+                </span>
+              </div>
+              <div class="text-xs text-slate-400">
+                продавец: {{ l.sellerName }}
+                <span class="text-slate-600">· номинал {{ fmt(l.item.value) }}</span>
+              </div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="font-mono text-amber-300">{{ fmt(l.price) }}</div>
+              <span v-if="l.mine" class="text-[11px] text-slate-500">ваш лот</span>
+              <span v-else-if="profile && l.price > profile.cash" class="text-[11px] text-slate-500">
+                не хватает средств
+              </span>
+              <button v-else class="btn-small px-3" @click="buyLot(l.id)">Купить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue';
+import { fmt, RARITY_LABEL, RARITY_ORDER } from '@auctioneer/shared';
+import type { HideoutState, MarketHistoryEntry, MarketListing, Profile, Rarity } from '@auctioneer/shared';
+import { get, post } from '../lib/api';
+import { useAuthStore } from '../stores/auth';
+import { useGameStore } from '../stores/game';
+import { RARITY_HEX } from '../lib/rarity';
+import TopNav from '../components/TopNav.vue';
+import ItemCard from '../components/ItemCard.vue';
+
+const auth = useAuthStore();
+const game = useGameStore();
+
+const profile = ref<Profile | null>(null);
+const listings = ref<MarketListing[]>([]);
+const hideout = ref<HideoutState | null>(null);
+const history = ref<MarketHistoryEntry[]>([]);
+const selectedId = ref<string | null>(null);
+const price = ref(0);
+const search = ref('');
+const rarityFilter = ref<Rarity | null>(null);
+
+const inventory = computed(() => profile.value?.inventory ?? []);
+const inventoryValue = computed(() => inventory.value.reduce((s, i) => s + i.value, 0));
+const selected = computed(() => inventory.value.find((i) => i.id === selectedId.value) ?? null);
+const myListings = computed(() => listings.value.filter((l) => l.mine));
+const filteredListings = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  return listings.value.filter((l) => {
+    if (rarityFilter.value && l.item.rarity !== rarityFilter.value) return false;
+    if (q && !l.item.name.toLowerCase().includes(q) && !l.sellerName.toLowerCase().includes(q)) return false;
+    return true;
+  });
+});
+
+onMounted(async () => {
+  await refresh();
+});
+
+async function refresh(): Promise<void> {
+  try {
+    profile.value = await auth.fetchMe();
+    listings.value = await get<MarketListing[]>('/api/market');
+    hideout.value = await get<HideoutState>('/api/hideout');
+    history.value = await get<MarketHistoryEntry[]>('/api/market/history');
+  } catch (e) {
+    game.pushToast((e as Error).message, 'error');
+  }
+}
+
+/** Нужен ли этот предмет для одного из моих недособранных сетов */
+function setNeedBadge(l: MarketListing): string | null {
+  if (!hideout.value) return null;
+  for (const set of hideout.value.sets) {
+    if (set.active) continue;
+    const slot = set.slots.find((s) => s.defId === l.item.defId);
+    if (slot && !slot.placed) return set.name;
+  }
+  return null;
+}
+
+function select(id: string): void {
+  selectedId.value = selectedId.value === id ? null : id;
+}
+
+async function sellToVendor(itemId: string): Promise<void> {
+  try {
+    const r = await post<{ ok: boolean; value: number }>('/api/items/sell', { itemId });
+    game.pushToast('Продано торговцу за ' + fmt(r.value));
+    selectedId.value = null;
+    await refresh();
+  } catch (e) {
+    game.pushToast((e as Error).message, 'error');
+  }
+}
+
+async function listItem(itemId: string): Promise<void> {
+  try {
+    await post('/api/market/list', { itemId, price: price.value });
+    game.pushToast('Предмет выставлен на барахолку');
+    selectedId.value = null;
+    price.value = 0;
+    await refresh();
+  } catch (e) {
+    game.pushToast((e as Error).message, 'error');
+  }
+}
+
+async function buyLot(listingId: string): Promise<void> {
+  try {
+    await post('/api/market/buy', { listingId });
+    game.pushToast('Покупка совершена — предмет в инвентаре');
+    await refresh();
+  } catch (e) {
+    game.pushToast((e as Error).message, 'error');
+  }
+}
+
+async function cancelLot(listingId: string): Promise<void> {
+  try {
+    await post('/api/market/cancel', { listingId });
+    game.pushToast('Лот снят — предмет возвращён в инвентарь');
+    await refresh();
+  } catch (e) {
+    game.pushToast((e as Error).message, 'error');
+  }
+}
+
+function toggleRarity(r: Rarity): void {
+  rarityFilter.value = rarityFilter.value === r ? null : r;
+}
+
+function rarityChip(r: Rarity): Record<string, string> {
+  const c = RARITY_HEX[r];
+  const active = rarityFilter.value === r;
+  return {
+    borderColor: c,
+    color: active ? '#020617' : c,
+    background: active ? c : c + '14',
+  };
+}
+
+function expires(l: MarketListing): string {
+  const days = Math.max(0, Math.ceil((l.expiresAt - Date.now()) / 86400000));
+  return days + ' дн.';
+}
+
+function historyKindLabel(kind: MarketHistoryEntry['kind']): string {
+  if (kind === 'buy') return 'Куплено';
+  if (kind === 'sell') return 'Продано';
+  return 'Торговцу';
+}
+
+function historyKindClass(kind: MarketHistoryEntry['kind']): string {
+  if (kind === 'buy') return 'bg-emerald-500/20 text-emerald-300';
+  if (kind === 'sell') return 'bg-sky-500/20 text-sky-300';
+  return 'bg-amber-500/20 text-amber-300';
+}
+
+function counterpartText(h: MarketHistoryEntry): string {
+  if (h.kind === 'buy') return 'у ' + h.counterpart;
+  if (h.kind === 'sell') return 'для ' + h.counterpart;
+  return 'продажа торговцу';
+}
+
+function fmtTime(at: number): string {
+  return new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+</script>

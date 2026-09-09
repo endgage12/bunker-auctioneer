@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+/* Euclid Circular A (самохостинг) */
+@font-face {
+  font-family: "Euclid Circular A";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/euclid-circular-a-regular.woff") format("woff");
+}
+@font-face {
+  font-family: "Euclid Circular A";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/euclid-circular-a-medium.woff") format("woff");
+}
+@font-face {
+  font-family: "Euclid Circular A";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/euclid-circular-a-semibold.woff") format("woff");
+}
+@font-face {
+  font-family: "Euclid Circular A";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/euclid-circular-a-bold.woff") format("woff");
+}
+
+@theme {
+  --font-sans: "Euclid Circular A", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+}
+
+html, body, #app {
+  height: 100%;
+}
+body {
+  background-color: #020617;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg py-2.5 px-4 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply bg-slate-800 hover:bg-slate-700 text-slate-100 font-medium rounded-lg py-2.5 px-4 text-sm transition;
+  }
+  .btn-danger {
+    @apply bg-rose-600 hover:bg-rose-500 text-white font-medium rounded-lg py-2.5 px-4 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-small {
+    @apply bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-md py-1.5 transition;
+  }
+  .input-dark {
+    @apply bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400 w-full;
+  }
+  .input-price {
+    @apply bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400 w-36;
+  }
+  .nav-link {
+    @apply px-3 py-1.5 rounded-md text-sm text-slate-300 hover:text-white hover:bg-slate-800 transition;
+  }
+  .nav-link-active {
+    @apply bg-slate-800 text-white;
+  }
+  .panel {
+    @apply bg-slate-900 border border-slate-800 rounded-xl p-3;
+  }
+}
+
+/* Доска */
+.board-grid {
+  position: relative;
+  display: grid;
+  width: 100%;
+  max-width: min(100%, 62vh);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  gap: 1px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.board-cell {
+  background: #0f172a;
+  transition: background 0.15s ease;
+}
+.board-cell.cell-closed {
+  background: #111827;
+  background-image: radial-gradient(circle, #334155 1px, transparent 1.5px);
+  background-size: 8px 8px;
+}
+.board-cell.cell-hover-ok {
+  background: rgba(52, 211, 153, 0.3);
+}
+.board-cell.cell-hover-bad {
+  background: rgba(244, 63, 94, 0.3);
+}
+.board-cell.clickable:hover {
+  background: #1e293b;
+}
+.board-item {
+  position: relative;
+  z-index: 10;
+}
+
+@keyframes flip-in {
+  from { transform: rotateY(90deg) scale(0.9); opacity: 0; }
+  to { transform: rotateY(0deg) scale(1); opacity: 1; }
+}
+.flip-in {
+  animation: flip-in 0.5s ease-out both;
+}
+
+@keyframes lot-glow {
+  0%, 100% { box-shadow: 0 0 6px 1px rgba(250, 204, 21, 0.55); }
+  50% { box-shadow: 0 0 18px 6px rgba(250, 204, 21, 0.9); }
+}
+.lot-open {
+  animation: lot-glow 1.4s ease-in-out infinite;
+}
+
+@keyframes toast-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.toast-in {
+  animation: toast-in 0.25s ease-out both;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

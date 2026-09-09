@@ -13,6 +13,7 @@ const router = createRouter({
     // старый адрес раздела «Убежище» — редирект на «Сеты»
     { path: '/hideout', redirect: '/sets' },
     { path: '/library', name: 'library', component: () => import('./views/LibraryView.vue') },
+    { path: '/leaderboard', name: 'leaderboard', component: () => import('./views/LeaderboardView.vue') },
     { path: '/admin', name: 'admin', component: () => import('./views/AdminView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
     { path: '/game/:code', name: 'game', component: () => import('./views/GameView.vue') },

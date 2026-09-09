@@ -275,6 +275,27 @@ export interface GameDetail {
   items: GamePrizeItem[];
 }
 
+/** Строка таблицы лидеров */
+export interface LeaderboardEntry {
+  /** место в списке (начинается с 1) */
+  rank: number;
+  id: string;
+  name: string;
+  avatar?: string;
+  cash: number;
+  /** суммарный номинал всех предметов игрока */
+  inventoryValue: number;
+  /** наличные + номинал инвентаря — «счёт», по которому строится топ */
+  netWorth: number;
+  gamesWon: number;
+}
+
+/** Ответ таблицы лидеров: топ списка + место текущего игрока */
+export interface LeaderboardResponse {
+  entries: LeaderboardEntry[];
+  me: LeaderboardEntry | null;
+}
+
 /** Публичная страница профиля игрока (видна любому авторизованному) */
 export interface PublicProfile {
   id: string;

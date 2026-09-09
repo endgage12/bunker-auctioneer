@@ -54,6 +54,9 @@
             <router-link to="/library" class="nav-link" :class="{ 'nav-link-active': $route.name === 'library' }">
               Библиотека
             </router-link>
+            <router-link to="/leaderboard" class="nav-link" :class="{ 'nav-link-active': $route.name === 'leaderboard' }">
+              Таблица лидеров
+            </router-link>
             <router-link
               v-if="profile?.isAdmin"
               to="/admin"
@@ -100,6 +103,9 @@
         </router-link>
         <router-link to="/library" class="nav-link" :class="{ 'nav-link-active': $route.name === 'library' }">
           Библиотека
+        </router-link>
+        <router-link to="/leaderboard" class="nav-link" :class="{ 'nav-link-active': $route.name === 'leaderboard' }">
+          Таблица лидеров
         </router-link>
         <router-link
           v-if="profile?.isAdmin"

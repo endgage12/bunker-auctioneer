@@ -14,6 +14,8 @@ import type {
   HideoutState,
   InventoryRow,
   ItemInstance,
+  LeaderboardEntry,
+  LeaderboardResponse,
   MarketHistoryEntry,
   MatchHistoryEntry,
   MarketListing,
@@ -368,6 +370,32 @@ export function getPublicProfile(userId: string): PublicProfile | null {
     completedSets: hideout.completedSets,
     totalSets: hideout.totalSets,
     netWorth: u.cash + inventoryValue,
+  };
+}
+
+/** Таблица лидеров: топ игроков по «счёту» (наличные + номинал инвентаря) */
+export function getLeaderboard(limit: number, selfId: string): LeaderboardResponse {
+  const rows = db
+    .prepare(
+      'SELECT u.id, u.name, u.avatar, u.cash, u.games_won AS gamesWon, ' +
+        'COALESCE((SELECT SUM(i.value) FROM items i WHERE i.user_id = u.id), 0) AS invValue ' +
+        'FROM users u WHERE u.id != ? ' +
+        'ORDER BY (u.cash + COALESCE((SELECT SUM(i.value) FROM items i WHERE i.user_id = u.id), 0)) DESC, u.created_at ASC',
+    )
+    .all(HOUSE_ID) as Row[];
+  const all: LeaderboardEntry[] = rows.map((r, idx) => ({
+    rank: idx + 1,
+    id: String(r.id),
+    name: String(r.name),
+    avatar: r.avatar ? String(r.avatar) : undefined,
+    cash: Number(r.cash),
+    inventoryValue: Number(r.invValue),
+    netWorth: Number(r.cash) + Number(r.invValue),
+    gamesWon: Number(r.gamesWon ?? 0),
+  }));
+  return {
+    entries: all.slice(0, Math.max(1, Math.floor(limit))),
+    me: selfId ? all.find((e) => e.id === selfId) ?? null : null,
   };
 }
 

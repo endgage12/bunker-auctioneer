@@ -40,6 +40,15 @@ export function createRestRouter(): Router {
     res.json(profile);
   });
 
+  // ---------- таблица лидеров ----------
+
+  // топ игроков по «счёту» (наличные + номинал инвентаря); me — место текущего игрока
+  r.get('/api/leaderboard', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const q = req.query as Record<string, string | undefined>;
+    res.json(db.getLeaderboard(Number(q.limit ?? 50), userId));
+  });
+
   // история матчей игрока (вложения и разница по каждой партии)
   r.get('/api/profile/:id/history', authRequired, (req, res) => {
     const userId = String(req.params.id ?? '');

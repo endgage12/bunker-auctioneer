@@ -10,8 +10,8 @@ import {
   MULTIPLIERS,
   MULTIPLIER_PCT,
   PRIZE_RARITY,
-  TABLE_FILL_MAX,
-  TABLE_FILL_MIN,
+  TABLE_VALUE_MAX,
+  TABLE_VALUE_MIN,
   REVEAL_FRACTIONS,
   REVEAL_SECONDS,
   RESOLVE_SECONDS,
@@ -38,6 +38,14 @@ import type {
   Rarity,
   RarityHint,
 } from '@auctioneer/shared';
+
+/** Порог плотности ценности (валюты на клетку), выше которого стол добирается дорогими редкостями */
+const EXPENSIVE_DENSITY = 26_000;
+
+/** Веса редкостей для «дорогого» стола: редко белые/зелёные, чаще жёлтые/золотые/красные */
+const EXPENSIVE_RARITY: Record<Rarity, number> = {
+  white: 2, green: 8, blue: 12, purple: 16, yellow: 22, gold: 24, red: 16,
+};
 
 export interface EnginePlayerSeed {
   id: string;
@@ -294,29 +302,36 @@ export class Game {
   // ---------- стол ----------
 
   /**
-   * Стол заполняется предметами до заданной доли клеток поля:
-   * минимум TABLE_FILL_MIN (~60%), максимум TABLE_FILL_MAX (~95%).
-   * Предметы кладутся вплотную друг к другу от левого нижнего угла.
+   * Стол заполняется предметами до случайной суммарной стоимости
+   * в диапазоне TABLE_VALUE_MIN (300 000) .. TABLE_VALUE_MAX (9 000 000).
+   * Предметы кладутся вплотную друг к другу от левого нижнего угла;
+   * заполнение клеток не превышает 95% поля. Когда требуемая плотность
+   * ценности высока, редкости смещаются в сторону дорогих предметов.
    */
   private buildTable(): void {
     const totalCells = GRID_W * GRID_H;
-    const minCover = Math.floor(totalCells * TABLE_FILL_MIN);
-    const maxCover = Math.floor(totalCells * TABLE_FILL_MAX);
-    // целевая заполненность стола — случайная величина в диапазоне ~60%..95%
-    const target = Math.min(
-      maxCover,
-      minCover + Math.floor(this.rng() * (maxCover - minCover + 1)),
-    );
-    let covered = this.placed.reduce((s, pl) => s + pl.w * pl.h, 0);
+    const maxCover = Math.floor(totalCells * 0.95);
+    // целевая стоимость стола в диапазоне 300 000..9 000 000 со смещением к минимуму:
+    // дешёвые столы выпадают чаще всего, шанс падает с ростом стоимости (куб от rng)
+    const roll = this.rng();
+    const target =
+      TABLE_VALUE_MIN +
+      Math.floor((TABLE_VALUE_MAX - TABLE_VALUE_MIN) * roll * roll * roll);
+    let value = 0;
+    let covered = 0;
     let guard = 0;
-    while (covered < target && guard++ < 300) {
-      const item = generateItem(this.rng, { rarityWeights: PRIZE_RARITY });
+    while (value < target && guard++ < 600) {
+      // сколько ценности нужно «уместить» в оставшиеся клетки
+      const densityNeed = (target - value) / Math.max(1, maxCover - covered);
+      const weights = densityNeed > EXPENSIVE_DENSITY ? EXPENSIVE_RARITY : PRIZE_RARITY;
+      const item = generateItem(this.rng, { rarityWeights: weights });
       const area = item.w * item.h;
       if (covered + area > maxCover) {
         this.dropped.push(item);
-        break; // жёсткий потолок: не вылезаем за максимум
+        break; // жёсткий потолок по клеткам
       }
       if (this.tryPlaceItem(item)) {
+        value += item.value;
         covered += area;
       } else {
         this.dropped.push(item);

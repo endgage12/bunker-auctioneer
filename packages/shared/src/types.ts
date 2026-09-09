@@ -16,6 +16,8 @@ export const RARITY_LABEL: Record<Rarity, string> = {
 export interface ItemDef {
   id: string;
   name: string;
+  /** краткое описание предмета (показывается в библиотеке) */
+  desc: string;
   rarity: Rarity;
   minValue: number;
   maxValue: number;

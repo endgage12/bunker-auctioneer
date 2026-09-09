@@ -14,6 +14,9 @@
       <router-link to="/hideout" class="nav-link" :class="{ 'nav-link-active': $route.name === 'hideout' }">
         Убежище
       </router-link>
+      <router-link to="/library" class="nav-link" :class="{ 'nav-link-active': $route.name === 'library' }">
+        Библиотека
+      </router-link>
       <router-link
         v-if="profile?.isAdmin"
         to="/admin"

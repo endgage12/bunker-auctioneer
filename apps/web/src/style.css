@@ -137,3 +137,11 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* Подсветка совпадений в библиотеке (v-html) */
+mark {
+  background: rgba(251, 191, 36, 0.28);
+  color: #fde68a;
+  border-radius: 3px;
+  padding: 0 1px;
+}

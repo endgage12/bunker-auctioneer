@@ -280,6 +280,16 @@ export function findOrCreateDevUser(email: string, name: string): UserRow {
   return insertUser(null, email, name, null);
 }
 
+/** Служебный аккаунт администратора банка дома для кнопки «Войти (admin)» */
+export function findOrCreateAdminUser(): UserRow {
+  const email = 'admin@auctioneer.local';
+  const existing = db.prepare('SELECT * FROM users WHERE email = ? AND google_id IS NULL').get(email) as Row | undefined;
+  const id = existing ? String(existing.id) : insertUser(null, email, 'Администратор', null).id;
+  // Права админа выдаются принудительно, независимо от ADMIN_EMAILS
+  db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(id);
+  return mapUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined)!;
+}
+
 export function getUserById(id: string): UserRow | null {
   return mapUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined);
 }

@@ -29,14 +29,24 @@
 
       <div v-if="devError" class="mb-3 px-3 py-2 rounded bg-rose-950 text-rose-300 text-sm">{{ devError }}</div>
 
-      <button
-        type="button"
-        :disabled="busy"
-        class="btn-primary w-full"
-        @click="devLogin"
-      >
-        Войти (dev)
-      </button>
+      <div class="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          :disabled="busy"
+          class="btn-primary w-full"
+          @click="devLogin"
+        >
+          Войти (dev)
+        </button>
+        <button
+          type="button"
+          :disabled="busy"
+          class="w-full border border-amber-500/60 text-amber-300 font-medium rounded-lg py-2.5 px-4 text-sm transition hover:bg-amber-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          @click="adminLogin"
+        >
+          Войти (admin)
+        </button>
+      </div>
 
       <p class="text-xs text-slate-500 mt-5 text-center">
         Новичкам выдаётся набор предметов на ~300 000 и 250 000 наличными
@@ -102,6 +112,21 @@ async function devLogin(): Promise<void> {
     auth.setToken(resp.token);
     auth.user = resp.profile;
     router.replace('/');
+  } catch (e) {
+    devError.value = (e as Error).message;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function adminLogin(): Promise<void> {
+  busy.value = true;
+  devError.value = '';
+  try {
+    const resp = await post<{ token: string; profile: Profile }>('/api/auth/admin-login');
+    auth.setToken(resp.token);
+    auth.user = resp.profile;
+    router.replace('/admin');
   } catch (e) {
     devError.value = (e as Error).message;
   } finally {

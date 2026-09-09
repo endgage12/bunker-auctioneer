@@ -254,6 +254,18 @@ export function createRestRouter(): Router {
     });
   });
 
+  // Тестовый вход администратора банка дома (кнопка «Войти (admin)»)
+  r.post('/api/auth/admin-login', (_req, res) => {
+    if (!config.allowDevLogin) {
+      res.status(403).json({ error: 'Вход администратора отключён (ALLOW_DEV_LOGIN=false)' });
+      return;
+    }
+    const user = db.findOrCreateAdminUser();
+    void signToken(user.id).then((token) => {
+      res.json({ token, profile: db.getProfile(user.id) });
+    });
+  });
+
   r.get('/api/auth/google', (_req, res) => {
     if (!config.googleClientId || !config.googleClientSecret) {
       res.status(503).json({ error: 'Google OAuth не настроен: задайте GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET' });

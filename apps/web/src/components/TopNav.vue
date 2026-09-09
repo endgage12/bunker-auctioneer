@@ -117,7 +117,9 @@
         >
           {{ profile.name }}
         </router-link>
-        <span class="font-mono text-amber-300 text-sm whitespace-nowrap">{{ fmt(profile.cash) }}</span>
+        <span class="font-mono text-amber-300 text-sm whitespace-nowrap">
+          <CoinAmount :value="profile.cash" />
+        </span>
       </div>
     </div>
   </header>
@@ -126,7 +128,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { fmt } from '@auctioneer/shared';
+import CoinAmount from './CoinAmount.vue';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import Sheet from './ui/sheet/Sheet.vue';

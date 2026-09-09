@@ -21,7 +21,7 @@
           {{ name }}
         </div>
         <div v-if="showValue && value !== undefined" class="font-semibold shrink-0" :class="dense ? 'text-[9px]' : 'text-sm'">
-          {{ fmt(value) }}
+          <CoinAmount :value="value" />
         </div>
         <div v-if="!dense && w && h" class="text-[10px] opacity-80 shrink-0">{{ w }}×{{ h }}</div>
       </div>
@@ -34,10 +34,10 @@
       </div>
       <div class="font-semibold text-sm leading-snug mb-2">{{ name }}</div>
       <div v-if="value !== undefined" class="text-sm mb-1">
-        Стоимость: <span class="text-amber-300 font-mono">{{ fmt(value) }}</span>
+        Стоимость: <span class="text-amber-300 font-mono"><CoinAmount :value="value" /></span>
       </div>
       <div v-if="defRange" class="text-xs text-slate-400 mb-1">
-        Номинал каталога: {{ fmt(defRange.minValue) }} – {{ fmt(defRange.maxValue) }}
+        Номинал каталога: <CoinAmount :value="defRange.minValue" /> – {{ fmt(defRange.maxValue) }}
       </div>
       <div v-if="w && h" class="text-xs text-slate-400">Размер: {{ w }}×{{ h }}</div>
     </PopoverContent>
@@ -52,6 +52,7 @@ import type { Rarity } from '@auctioneer/shared';
 import { RARITY_HEX } from '../lib/rarity';
 import { catalogDef, itemIconUrl } from '../lib/items';
 import Popover from './ui/popover/Popover.vue';
+import CoinAmount from './CoinAmount.vue';
 import PopoverTrigger from './ui/popover/PopoverTrigger.vue';
 import PopoverContent from './ui/popover/PopoverContent.vue';
 

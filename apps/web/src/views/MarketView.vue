@@ -9,7 +9,7 @@
             <h2 class="font-semibold">Мой инвентарь</h2>
             <span class="text-xs text-slate-400">
               {{ inventory.length }} предм. ·
-              <span class="text-amber-300 font-mono">{{ fmt(inventoryValue) }}</span>
+              <span class="text-amber-300 font-mono"><CoinAmount :value="inventoryValue" /></span>
             </span>
           </div>
           <p class="text-xs text-slate-500 mb-4">
@@ -42,7 +42,7 @@
               <div class="min-w-0 flex-1">
                 <div class="text-sm truncate">{{ l.item.name }}</div>
                 <div class="text-xs text-slate-400">
-                  цена: <span class="text-amber-300 font-mono">{{ fmt(l.price) }}</span> · истекает {{ expires(l) }}
+                  цена: <span class="text-amber-300 font-mono"><CoinAmount :value="l.price" /></span> · истекает {{ expires(l) }}
                 </div>
               </div>
               <button class="btn-small" @click="cancelLot(l.id)">Снять</button>
@@ -67,9 +67,9 @@
               </div>
               <div class="text-right shrink-0">
                 <div class="text-xs font-mono" :class="h.kind === 'buy' ? 'text-rose-300' : 'text-emerald-300'">
-                  {{ h.kind === 'buy' ? '−' : '+' }}{{ fmt(h.price) }}
+                  <CoinAmount :value="h.price" :sign="h.kind === 'buy' ? '−' : '+'" />
                 </div>
-                <div v-if="h.kind === 'sell' && h.fee > 0" class="text-[10px] text-slate-500">комиссия −{{ fmt(h.fee) }}</div>
+                <div v-if="h.kind === 'sell' && h.fee > 0" class="text-[10px] text-slate-500">комиссия <CoinAmount :value="h.fee" sign="−" /></div>
                 <div class="text-[10px] text-slate-500">{{ fmtTime(h.at) }}</div>
               </div>
             </div>
@@ -120,11 +120,11 @@
               </div>
               <div class="text-xs text-slate-400">
                 продавец: {{ l.sellerName }}
-                <span class="text-slate-600">· номинал {{ fmt(l.item.value) }}</span>
+                <span class="text-slate-600">· номинал <CoinAmount :value="l.item.value" /></span>
               </div>
             </div>
             <div class="text-right shrink-0">
-              <div class="font-mono text-amber-300">{{ fmt(l.price) }}</div>
+              <div class="font-mono text-amber-300"><CoinAmount :value="l.price" /></div>
               <span v-if="l.mine" class="text-[11px] text-slate-500">ваш лот</span>
               <span v-else-if="profile && l.price > profile.cash" class="text-[11px] text-slate-500">
                 не хватает средств
@@ -154,13 +154,13 @@
               </div>
               <div class="mt-1">
                 размер {{ modalItem.w }}×{{ modalItem.h }} · номинал
-                <span class="text-amber-300 font-mono">{{ fmt(modalItem.value) }}</span>
+                <span class="text-amber-300 font-mono"><CoinAmount :value="modalItem.value" /></span>
               </div>
             </div>
           </div>
 
           <button class="btn-ghost w-full mt-4" @click="sellToVendor(modalItem.id)">
-            Продать торговцу за {{ fmt(modalItem.value) }}
+            Продать торговцу за <CoinAmount :value="modalItem.value" />
           </button>
 
           <div class="h-px bg-slate-800 my-4"></div>
@@ -199,6 +199,7 @@ import { useGameStore } from '../stores/game';
 import { RARITY_HEX } from '../lib/rarity';
 import TopNav from '../components/TopNav.vue';
 import ItemCard from '../components/ItemCard.vue';
+import CoinAmount from '../components/CoinAmount.vue';
 import Dialog from '../components/ui/dialog/Dialog.vue';
 import DialogContent from '../components/ui/dialog/DialogContent.vue';
 import DialogHeader from '../components/ui/dialog/DialogHeader.vue';

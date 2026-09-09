@@ -50,7 +50,7 @@
       <main class="flex-1 min-w-0 flex flex-col min-h-0">
         <div class="panel mb-3 py-2 px-4 text-sm shrink-0">
           Текущая ожидаемая стоимость предметов на столе:
-          <b class="text-amber-300 font-mono">{{ fmt(tableRevealedValue) }}</b>
+          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
           <span v-if="game.phase === 'betting'" class="text-slate-500 text-xs">
             · стол заполнится призами после вступительных ставок
           </span>
@@ -87,7 +87,7 @@
         <!-- статусная строка -->
         <div class="panel py-1.5 px-3 text-xs shrink-0 flex items-center gap-x-3 gap-y-1 flex-wrap">
           <span class="text-slate-400">Стол:</span>
-          <b class="text-amber-300 font-mono">{{ fmt(tableRevealedValue) }}</b>
+          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
           <span v-if="game.phase === 'betting'" class="text-slate-600 ml-auto text-[11px]">
             призы появятся после вступительных ставок
           </span>
@@ -136,7 +136,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { fmt } from '@auctioneer/shared';
+import CoinAmount from '../components/CoinAmount.vue';
 import type { Profile } from '@auctioneer/shared';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';

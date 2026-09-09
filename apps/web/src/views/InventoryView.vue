@@ -7,7 +7,7 @@
           <h1 class="text-xl font-bold">Инвентарь</h1>
           <p class="text-sm text-slate-400">
             {{ inventory.length }} предметов · сумма
-            <span class="text-amber-300 font-mono">{{ fmt(totalValue) }}</span>
+            <span class="text-amber-300 font-mono"><CoinAmount :value="totalValue" /></span>
             · перетаскивайте предметы по сетке
           </p>
         </div>
@@ -96,7 +96,7 @@
           :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
         >
           <div class="px-3 py-1.5 text-xs text-slate-400 truncate border-b border-slate-800 mb-1">
-            {{ ctxMenu.it.name }} · {{ fmt(ctxMenu.it.value) }}
+            {{ ctxMenu.it.name }} · <CoinAmount :value="ctxMenu.it.value" />
           </div>
           <button class="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 transition" @click="openListDialog">
             Выставить на аукцион
@@ -111,7 +111,7 @@
       <div v-if="listItem" class="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4" @click.self="listItem = null">
         <div class="panel p-5 w-80">
           <h3 class="font-semibold mb-1">Выставить на аукцион</h3>
-          <p class="text-xs text-slate-400 mb-4 truncate">{{ listItem.name }} · номинал {{ fmt(listItem.value) }}</p>
+          <p class="text-xs text-slate-400 mb-4 truncate">{{ listItem.name }} · номинал <CoinAmount :value="listItem.value" /></p>
           <input
             v-model.number="listPrice"
             type="number"
@@ -139,6 +139,7 @@ import { post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
+import CoinAmount from '../components/CoinAmount.vue';
 import ItemCard from '../components/ItemCard.vue';
 
 const auth = useAuthStore();

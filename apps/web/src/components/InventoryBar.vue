@@ -3,7 +3,7 @@
     <div class="flex items-center justify-between mb-2">
       <h3 class="text-sm font-semibold">Инвентарь ({{ rows.length }})</h3>
       <div class="text-xs text-slate-400">
-        сумма: <span class="text-amber-300 font-mono">{{ fmt(totalValue) }}</span>
+        сумма: <span class="text-amber-300 font-mono"><CoinAmount :value="totalValue" /></span>
       </div>
     </div>
     <div v-if="rows.length === 0" class="text-xs text-slate-500">Нет доступных предметов</div>
@@ -32,6 +32,7 @@ import { computed } from 'vue';
 import { fmt } from '@auctioneer/shared';
 import type { InventoryRow } from '@auctioneer/shared';
 import ItemCard from './ItemCard.vue';
+import CoinAmount from './CoinAmount.vue';
 
 const props = defineProps<{
   rows: InventoryRow[];

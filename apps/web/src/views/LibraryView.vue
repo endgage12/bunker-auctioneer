@@ -143,7 +143,7 @@
                     <div class="min-w-0">
                       <div class="flex flex-wrap items-baseline gap-x-2">
                         <span class="font-semibold text-sm" v-html="highlightHtml(def.name, normQuery)"></span>
-                        <span class="text-xs text-amber-300/90 font-mono">{{ fmt(def.minValue) }} – {{ fmt(def.maxValue) }}</span>
+                        <span class="text-xs text-amber-300/90 font-mono"><CoinAmount :value="def.minValue" /> – {{ fmt(def.maxValue) }}</span>
                       </div>
                       <div class="text-xs text-slate-400 leading-relaxed mt-0.5" v-html="highlightHtml(def.desc, normQuery)"></div>
                     </div>
@@ -167,6 +167,7 @@ import { itemIconUrl } from '../lib/items';
 import { LIBRARY_SECTIONS, articleSearchText } from '../lib/library';
 import type { LibraryArticle, LibrarySection } from '../lib/library';
 import TopNav from '../components/TopNav.vue';
+import CoinAmount from '../components/CoinAmount.vue';
 
 const query = ref('');
 const openIds = ref<Set<string>>(new Set());

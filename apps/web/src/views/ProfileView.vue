@@ -51,7 +51,7 @@
             <div class="text-xs text-slate-500 mt-1">винрейт</div>
           </div>
           <div class="panel p-4 text-center">
-            <div class="text-2xl font-bold text-amber-300 font-mono">{{ fmt(profile.netWorth) }}</div>
+            <div class="text-2xl font-bold text-amber-300 font-mono"><CoinAmount :value="profile.netWorth" /></div>
             <div class="text-xs text-slate-500 mt-1">состояние (наличные + инвентарь)</div>
           </div>
           <div class="panel p-4 text-center">
@@ -59,7 +59,7 @@
             <div class="text-xs text-slate-500 mt-1">предметов</div>
           </div>
           <div class="panel p-4 text-center">
-            <div class="text-2xl font-bold text-amber-300 font-mono">{{ fmt(profile.inventoryValue) }}</div>
+            <div class="text-2xl font-bold text-amber-300 font-mono"><CoinAmount :value="profile.inventoryValue" /></div>
             <div class="text-xs text-slate-500 mt-1">номинал инвентаря</div>
           </div>
           <div class="panel p-4 text-center">
@@ -78,12 +78,12 @@
             <div v-if="history.length" class="text-xs text-slate-400 flex flex-wrap items-center gap-x-4 gap-y-1">
               <span>
                 всего вложено
-                <span class="font-mono text-amber-300">{{ fmt(totalInvested) }}</span>
+                <span class="font-mono text-amber-300"><CoinAmount :value="totalInvested" /></span>
               </span>
               <span>
                 суммарная разница
                 <span class="font-mono font-semibold" :class="totalProfit >= 0 ? 'text-emerald-300' : 'text-rose-300'">
-                  {{ signed(totalProfit) }}
+                  <CoinAmount :value="totalProfit" signed />
                 </span>
               </span>
             </div>
@@ -110,13 +110,13 @@
                   </span>
                 </div>
                 <div class="text-[11px] text-slate-500 mt-0.5">
-                  вложено <span class="font-mono">{{ fmt(h.invested) }}</span>
+                  вложено <span class="font-mono"><CoinAmount :value="h.invested" /></span>
                   <span class="text-sky-400/80"> · предметы</span>
                 </div>
               </div>
               <div class="text-right shrink-0">
                 <div class="text-sm font-mono font-bold" :class="h.profit >= 0 ? 'text-emerald-300' : 'text-rose-300'">
-                  {{ signed(h.profit) }}
+                  <CoinAmount :value="h.profit" signed />
                 </div>
                 <div class="text-[10px]" :class="h.profit >= 0 ? 'text-emerald-400/70' : 'text-rose-400/70'">
                   {{ h.profit >= 0 ? 'ушёл в плюс' : 'ушёл в минус' }}
@@ -147,7 +147,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2 mt-4 mb-2">
               <div class="text-xs text-slate-400">Предметы призового стола ({{ matchDetail.items.length }})</div>
               <div class="text-xs text-slate-400">
-                ценность: <span class="font-mono text-amber-300">{{ fmt(itemsTotalValue) }}</span>
+                ценность: <span class="font-mono text-amber-300"><CoinAmount :value="itemsTotalValue" /></span>
               </div>
             </div>
             <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-80 overflow-y-auto pr-1">
@@ -161,7 +161,7 @@
                   <ItemCard :name="it.name" :rarity="it.rarity" :def-id="it.defId" dense :show-value="false" />
                 </div>
                 <div class="text-[9px] text-slate-400 text-center mt-1 leading-tight w-full truncate">
-                  {{ it.w }}×{{ it.h }} · {{ fmt(it.value) }}
+                  {{ it.w }}×{{ it.h }} · <CoinAmount :value="it.value" />
                 </div>
                 <div
                   class="text-[9px] text-center leading-tight w-full truncate"
@@ -188,6 +188,7 @@ import { get } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import TopNav from '../components/TopNav.vue';
 import ItemCard from '../components/ItemCard.vue';
+import CoinAmount from '../components/CoinAmount.vue';
 import Dialog from '../components/ui/dialog/Dialog.vue';
 import DialogContent from '../components/ui/dialog/DialogContent.vue';
 import DialogHeader from '../components/ui/dialog/DialogHeader.vue';
@@ -250,11 +251,6 @@ const winRate = computed(() => {
 
 const totalInvested = computed(() => history.value.reduce((s, h) => s + h.invested, 0));
 const totalProfit = computed(() => history.value.reduce((s, h) => s + h.profit, 0));
-
-/** Сумма со знаком: плюс или минус */
-function signed(n: number): string {
-  return (n >= 0 ? '+' : '−') + fmt(Math.abs(n));
-}
 
 function placeClass(place: number): string {
   if (place === 1) return 'text-amber-300';

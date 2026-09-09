@@ -16,13 +16,15 @@
             {{ nameOf(s.playerId) }}
             <span v-if="s.playerId === meId" class="text-slate-500">(вы)</span>
           </div>
-          <div class="sm:hidden text-[10px] text-slate-500 font-mono">
-            {{ fmt(s.cash) }} + {{ fmt(s.inventoryValue) }}
+          <div class="sm:hidden text-[10px] text-slate-500 font-mono flex items-center gap-1">
+            <CoinAmount :value="s.cash" /> + <CoinAmount :value="s.inventoryValue" />
           </div>
         </div>
-        <div class="hidden sm:block text-xs text-slate-400 font-mono shrink-0">{{ fmt(s.cash) }}</div>
-        <div class="hidden sm:block text-xs text-slate-500 font-mono shrink-0">+{{ fmt(s.inventoryValue) }}</div>
-        <div class="text-sm sm:text-base font-bold text-amber-300 font-mono shrink-0">{{ fmt(s.total) }}</div>
+        <div class="hidden sm:flex items-center gap-1 text-xs text-slate-400 font-mono shrink-0">
+          <CoinAmount :value="s.cash" />
+        </div>
+        <div class="hidden sm:block text-xs text-slate-500 font-mono shrink-0">+<CoinAmount :value="s.inventoryValue" /></div>
+        <div class="text-sm sm:text-base font-bold text-amber-300 font-mono shrink-0"><CoinAmount :value="s.total" /></div>
       </div>
     </div>
 
@@ -35,7 +37,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { fmt } from '@auctioneer/shared';
+import CoinAmount from './CoinAmount.vue';
 import type { PublicGame } from '@auctioneer/shared';
 
 const props = defineProps<{ game: PublicGame; meId: string }>();

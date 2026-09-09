@@ -22,10 +22,10 @@
           {{ p.name }}
           <span v-if="p.isHost" class="text-amber-300">★</span>
         </div>
-        <div class="text-[10px] font-mono text-slate-400 leading-tight">
-          {{ fmt(p.cash) }}
+        <div class="text-[10px] font-mono text-slate-400 leading-tight flex items-center gap-1">
+          <CoinAmount :value="p.cash" />
           <template v-if="p.ante > 0 && (game.phase === 'betting' || game.phase === 'auction')">
-            <span class="text-amber-200/80">· {{ fmt(p.ante) }}</span>
+            <span class="text-amber-200/80">· <CoinAmount :value="p.ante" /></span>
           </template>
         </div>
       </div>
@@ -68,12 +68,12 @@
             <span v-if="p.isHost" class="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">ХОСТ</span>
             <span v-if="!p.online" class="text-[9px] px-1 rounded bg-rose-500/20 text-rose-300">офлайн</span>
           </div>
-          <div class="text-[11px] text-slate-400 font-mono">
-            {{ fmt(p.cash) }}
-            <span class="text-slate-600">· инв: {{ fmt(p.inventoryValue) }}</span>
+          <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1">
+            <CoinAmount :value="p.cash" />
+            <span class="text-slate-600">· инв: <CoinAmount :value="p.inventoryValue" /></span>
           </div>
           <div v-if="game.phase === 'betting' || game.phase === 'auction'" class="text-[10px] text-slate-500">
-            ставка: <span class="text-amber-200/80">{{ fmt(p.ante) }}</span>
+            ставка: <span class="text-amber-200/80"><CoinAmount :value="p.ante" /></span>
           </div>
         </div>
         <span
@@ -89,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { fmt } from '@auctioneer/shared';
+import CoinAmount from './CoinAmount.vue';
 import type { PublicGame, PublicPlayer } from '@auctioneer/shared';
 
 const props = withDefaults(defineProps<{ game: PublicGame; meId: string; compact?: boolean }>(), {

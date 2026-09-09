@@ -22,7 +22,7 @@
                 {{ sacrificedCount }}/{{ SANTA_MIN_ITEMS }} предметов
               </template>
               <template v-else>{{ sacrificedCount }} предметов</template>
-              · {{ fmt(poolValue) }}
+              · <CoinAmount :value="poolValue" />
             </div>
           </div>
           <div v-if="active">
@@ -48,7 +48,7 @@
             ></span>
             <span class="text-sm text-slate-100 font-medium">{{ selectedItem.name }}</span>
             <span class="text-xs text-slate-400">
-              {{ RARITY_LABEL[selectedItem.rarity] }} · {{ fmt(selectedItem.value) }} · {{ selectedItem.w }}×{{ selectedItem.h }}
+              {{ RARITY_LABEL[selectedItem.rarity] }} · <CoinAmount :value="selectedItem.value" /> · {{ selectedItem.w }}×{{ selectedItem.h }}
             </span>
             <span class="text-xs text-emerald-300">
               {{ selTarget === 'box' ? 'тапните по подсвеченной клетке ящика' : 'тапните по подсвеченной клетке инвентаря' }}
@@ -67,7 +67,7 @@
               <h2 class="font-semibold">Инвентарь</h2>
               <span class="text-xs text-slate-400">
                 {{ inventory.length }} предметов ·
-                <span class="text-amber-300 font-mono">{{ fmt(invTotal) }}</span>
+                <span class="text-amber-300 font-mono"><CoinAmount :value="invTotal" /></span>
               </span>
             </div>
             <div
@@ -211,14 +211,14 @@
             <span class="text-slate-400 shrink-0">Вложено</span>
             <span class="text-right">
               {{ cycleModal.itemsIn }} {{ plural(cycleModal.itemsIn, 'предмет', 'предмета', 'предметов') }}
-              · <span class="text-amber-300 font-mono">{{ fmt(cycleModal.valueIn) }}</span>
+              · <span class="text-amber-300 font-mono"><CoinAmount :value="cycleModal.valueIn" /></span>
             </span>
           </div>
           <div class="flex items-baseline justify-between gap-4">
             <span class="text-slate-400 shrink-0">Получено</span>
             <span class="text-right">
               {{ cycleModal.itemsOut }} {{ plural(cycleModal.itemsOut, 'предмет', 'предмета', 'предметов') }}
-              · <span class="text-amber-300 font-mono">{{ fmt(cycleModal.valueOut) }}</span>
+              · <span class="text-amber-300 font-mono"><CoinAmount :value="cycleModal.valueOut" /></span>
             </span>
           </div>
           <div class="h-px bg-slate-700"></div>
@@ -228,7 +228,7 @@
               class="font-mono font-semibold"
               :class="cycleDiff >= 0 ? 'text-emerald-300' : 'text-rose-400'"
             >
-              {{ cycleDiff >= 0 ? '+' : '−' }}{{ fmt(Math.abs(cycleDiff)) }}
+              <CoinAmount :value="cycleDiff" signed />
             </span>
           </div>
         </div>
@@ -248,6 +248,7 @@ import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
 import ItemCard from '../components/ItemCard.vue';
+import CoinAmount from '../components/CoinAmount.vue';
 
 const auth = useAuthStore();
 const game = useGameStore();

@@ -15,7 +15,7 @@
             <ItemCard :name="r.name" :rarity="r.rarity" :value="r.value" dense />
           </div>
           <div class="text-[11px] text-slate-300">
-            Личное раскрытие: {{ r.name }} — {{ fmt(r.value) }}
+            Личное раскрытие: {{ r.name }} — <CoinAmount :value="r.value" />
           </div>
         </div>
         <div v-for="(h, i) in game.private.hints" :key="'h' + i" class="text-[11px] text-violet-300">
@@ -48,7 +48,7 @@
 
       <div class="text-sm">
         Открыто {{ auction.revealedCount }}/{{ auction.totalItems }} — сумма
-        <b class="text-amber-300 font-mono">{{ fmt(auction.revealedValue) }}</b>
+        <b class="text-amber-300 font-mono"><CoinAmount :value="auction.revealedValue" /></b>
       </div>
 
       <!-- Фаза ставок -->
@@ -100,17 +100,20 @@
             :class="b.amount === maxBid && b.amount > 0 ? 'text-amber-300' : ''"
           >
             <span class="truncate">{{ playerName(b.playerId) }}</span>
-            <span class="font-mono">{{ b.amount === 0 ? 'пас' : fmt(b.amount) }}</span>
+            <span class="font-mono">
+              <template v-if="b.amount === 0">пас</template>
+              <CoinAmount v-else :value="b.amount" />
+            </span>
           </div>
         </div>
         <div v-if="auction.result?.winnerId" class="text-sm text-emerald-300 font-semibold">
-          {{ playerName(auction.result.winnerId) }} забирает все предметы стола за {{ fmt(auction.result.price ?? 0) }}
+          {{ playerName(auction.result.winnerId) }} забирает все предметы стола за <CoinAmount :value="auction.result.price ?? 0" />
         </div>
         <div
           v-if="auction.result?.winnerId && auction.result.compensation"
           class="text-[11px] text-sky-300"
         >
-          Переплата: банк выплатил остальным компенсацию {{ fmt(auction.result.compensation) }}
+          Переплата: банк выплатил остальным компенсацию <CoinAmount :value="auction.result.compensation" />
         </div>
         <div v-else-if="auction.result?.voided" class="text-sm text-rose-300 font-semibold">
           Ставки совпали дважды — стол не достался никому
@@ -124,10 +127,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { fmt, RARITY_LABEL } from '@auctioneer/shared';
+import { RARITY_LABEL } from '@auctioneer/shared';
 import type { AuctionBid, PublicGame, Rarity } from '@auctioneer/shared';
 import { RARITY_HEX } from '../lib/rarity';
 import ItemCard from './ItemCard.vue';
+import CoinAmount from './CoinAmount.vue';
 
 const props = defineProps<{ game: PublicGame; meId: string }>();
 const emit = defineEmits<{ (e: 'bid', amount: number): void }>();

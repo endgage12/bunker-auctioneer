@@ -6,7 +6,7 @@
         <!-- Банк -->
         <div class="panel p-5">
           <h2 class="font-semibold mb-1">Банк дома</h2>
-          <div class="text-3xl font-mono text-amber-300">{{ fmt(bank.balance) }}</div>
+          <div class="text-3xl font-mono text-amber-300"><CoinAmount :value="bank.balance" /></div>
           <p class="text-xs text-slate-500 mt-2 mb-5">
             Сюда поступают доходы партий, комиссии барахолки и самовыкупы.
             Отсюда платятся торговец, стартовые капиталы и выплаты игрокам.
@@ -41,7 +41,7 @@
           <div class="flex items-center justify-between mb-3">
             <h2 class="font-semibold">Собственность дома ({{ bank.inventory.length }})</h2>
             <span class="text-xs text-slate-400">
-              сумма <span class="text-amber-300 font-mono">{{ fmt(bank.inventoryValue) }}</span>
+              сумма <span class="text-amber-300 font-mono"><CoinAmount :value="bank.inventoryValue" /></span>
             </span>
           </div>
           <p class="text-xs text-slate-500 mb-3">
@@ -55,7 +55,7 @@
               </div>
               <div class="min-w-0 flex-1">
                 <div class="text-sm truncate">{{ it.name }}</div>
-                <div class="text-xs text-slate-400">номинал {{ fmt(it.value) }} · {{ it.w }}×{{ it.h }}</div>
+                <div class="text-xs text-slate-400">номинал <CoinAmount :value="it.value" /> · {{ it.w }}×{{ it.h }}</div>
               </div>
               <input v-model.number="housePrices[it.id]" type="number" min="1" class="input-price" placeholder="Цена" />
               <button class="btn-small" :disabled="!housePrices[it.id]" @click="listHouseItem(it.id)">
@@ -87,9 +87,9 @@
                 <td class="py-1.5 pr-4">{{ txLabel(t.type) }}</td>
                 <td class="py-1.5 pr-4 text-slate-400">{{ t.partyName ?? '—' }}</td>
                 <td class="py-1.5 pr-4 text-right font-mono" :class="t.amount >= 0 ? 'text-emerald-300' : 'text-rose-300'">
-                  {{ t.amount >= 0 ? '+' : '' }}{{ fmt(t.amount) }}
+                  <CoinAmount :value="t.amount" signed />
                 </td>
-                <td class="py-1.5 text-right font-mono text-slate-300">{{ fmt(t.balanceAfter) }}</td>
+                <td class="py-1.5 text-right font-mono text-slate-300"><CoinAmount :value="t.balanceAfter" /></td>
               </tr>
             </tbody>
           </table>
@@ -103,13 +103,14 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { BANK_TX_LABELS, fmt } from '@auctioneer/shared';
+import { BANK_TX_LABELS } from '@auctioneer/shared';
 import type { AdminBank } from '@auctioneer/shared';
 import { get, post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
 import ItemCard from '../components/ItemCard.vue';
+import CoinAmount from '../components/CoinAmount.vue';
 
 const auth = useAuthStore();
 const game = useGameStore();

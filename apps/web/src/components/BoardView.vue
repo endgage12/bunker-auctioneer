@@ -52,6 +52,21 @@
             :class="preview.ok ? 'border-emerald-400 bg-emerald-400/20' : 'border-rose-500 bg-rose-500/20'"
             :style="previewRect(preview)"
           ></div>
+
+          <!-- личные подсказки о редкости скрытых предметов (карточки-анализаторы) -->
+          <div
+            v-for="r in rarityHintRects"
+            :key="'hint' + r.itemId"
+            class="rarity-hint absolute pointer-events-none rounded-md"
+            :style="hintRectStyle(r)"
+          >
+            <span
+              class="hint-chip"
+              :style="{ borderColor: RARITY_HEX[r.rarity], color: RARITY_HEX[r.rarity] }"
+            >
+              <span class="hint-dot" :style="{ background: RARITY_HEX[r.rarity] }"></span>?
+            </span>
+          </div>
         </div>
 
         <!-- метки лотов (вне масштабируемой сетки — всегда читаемые) -->
@@ -78,7 +93,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { fmt } from '@auctioneer/shared';
-import type { PublicBoard, PublicCell, PublicItem, PublicLot } from '@auctioneer/shared';
+import type { PublicBoard, PublicCell, PublicItem, PublicLot, Rarity, RarityHint } from '@auctioneer/shared';
+import { RARITY_HEX } from '../lib/rarity';
 import ItemCard from './ItemCard.vue';
 
 const CELL = 64;
@@ -97,6 +113,8 @@ const props = withDefaults(
     selected?: { w: number; h: number } | null;
     /** 'both' — вписать целиком в доступную область; 'width' — по ширине (страница скроллится) */
     fit?: 'both' | 'width';
+    /** личные подсказки: границы скрытых предметов подсвечиваются цветом редкости */
+    rarityHints?: RarityHint[];
   }>(),
   { fit: 'both' },
 );
@@ -234,6 +252,50 @@ function previewRect(p: { x: number; y: number; w: number; h: number }): Record<
   };
 }
 
+/** Прямоугольники скрытых предметов, редкость которых раскрыта лично игроку */
+const rarityHintRects = computed(() => {
+  const hints = props.rarityHints ?? [];
+  if (hints.length === 0) return [];
+  const out: { itemId: string; rarity: Rarity; x: number; y: number; w: number; h: number }[] = [];
+  const w = props.board.w;
+  for (const h of hints) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -1;
+    let maxY = -1;
+    props.board.cells.forEach((c, idx) => {
+      if (c.kind === 'closed' && c.itemId === h.itemId) {
+        const x = idx % w;
+        const y = Math.floor(idx / w);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    });
+    if (maxX >= 0) {
+      out.push({ itemId: h.itemId, rarity: h.rarity, x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 });
+    }
+  }
+  return out;
+});
+
+function hintRectStyle(r: { x: number; y: number; w: number; h: number; rarity: Rarity }): Record<string, string> {
+  const w = props.board.w || 1;
+  const h = props.board.h || 1;
+  const c = RARITY_HEX[r.rarity];
+  return {
+    left: (r.x / w) * 100 + '%',
+    top: (r.y / h) * 100 + '%',
+    width: (r.w / w) * 100 + '%',
+    height: (r.h / h) * 100 + '%',
+    // толщина рамки не зависит от масштаба стола
+    border: 'calc(2px / var(--bs, 1)) solid ' + c,
+    background: c + '24',
+    boxShadow: '0 0 calc(14px / var(--bs, 1)) ' + c + '55',
+  };
+}
+
 function cellClass(cell: PublicCell, idx: number): string {
   const cls = ['board-cell'];
   if (cell.kind === 'closed') cls.push('cell-closed');
@@ -298,6 +360,35 @@ function onItemClick(it: PublicItem): void {
 }
 .board-cell.clickable:hover {
   background: #1e293b;
+}
+.rarity-hint {
+  z-index: 15;
+  animation: hint-pulse 1.6s ease-in-out infinite;
+}
+@keyframes hint-pulse {
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
+}
+.hint-chip {
+  position: absolute;
+  top: calc(-9px / var(--bs, 1));
+  left: calc(50% - 14px);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.9);
+  border: 1px solid;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.hint-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  display: inline-block;
 }
 .board-item {
   position: relative;

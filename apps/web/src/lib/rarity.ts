@@ -5,6 +5,7 @@ export const RARITY_HEX: Record<Rarity, string> = {
   green: '#22c55e',
   blue: '#3b82f6',
   purple: '#a855f7',
+  yellow: '#facc15',
   gold: '#f59e0b',
   red: '#ef4444',
 };

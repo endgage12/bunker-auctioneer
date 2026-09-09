@@ -25,11 +25,36 @@
       </div>
 
       <div v-if="!profile" class="text-slate-400">Загрузка…</div>
-      <div v-else-if="inventory.length === 0" class="text-slate-500">
-        Инвентарь пуст — загляните на <router-link to="/market" class="text-amber-300 hover:underline">барахолку</router-link>
-      </div>
-      <div v-else class="flex-1 min-h-0 overflow-y-auto pr-2 pb-6" @scroll="closeMenu">
-        <div class="w-fit">
+      <template v-else>
+        <!-- инвентарь: своя область прокрутки; карточки — отдельным блоком ниже -->
+        <div class="flex-1 min-h-0 overflow-y-auto pr-2" @scroll="closeMenu">
+        <!-- переполнение: важный блок, всегда самым первым сверху -->
+        <div v-if="layout.overflow.length" class="panel p-4 mb-4 !border-rose-500/60">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-lg">⚠️</span>
+            <h2 class="font-semibold text-sm">Переполнение инвентаря</h2>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-mono">{{ layout.overflow.length }}</span>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">
+            Этим предметам не хватило места в сетке. Освободите ячейки (перетащите или продайте что-нибудь) — предметы вернутся в сетку автоматически.
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <div
+              v-for="it in layout.overflow"
+              :key="it.id"
+              class="w-16 h-16 rounded overflow-hidden ring-1 ring-rose-500/50"
+              :title="it.name + ' ' + it.w + 'x' + it.h + ' — ' + fmt(it.value)"
+              @contextmenu.prevent.stop="openMenu($event, it)"
+            >
+              <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
+            </div>
+          </div>
+        </div>
+
+        <div v-if="inventory.length === 0" class="text-slate-500 mb-4">
+          Инвентарь пуст — загляните на <router-link to="/market" class="text-amber-300 hover:underline">барахолку</router-link>
+        </div>
+        <div v-else class="w-fit">
           <div
             ref="gridEl"
             class="inv-grid"
@@ -67,26 +92,55 @@
             ></div>
           </div>
 
-          <!-- переполнение: предметам не хватило места -->
-          <div v-if="layout.overflow.length" class="mt-4">
-            <div class="text-xs text-rose-300 mb-2">
-              Нет места в сетке ({{ layout.overflow.length }}) — освободите ячейки или продайте что-нибудь
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <div
-                v-for="it in layout.overflow"
-                :key="it.id"
-                class="w-16 h-16 rounded overflow-hidden ring-1 ring-rose-500/50"
-                :title="it.name + ' ' + it.w + 'x' + it.h + ' — ' + fmt(it.value)"
-                @contextmenu.prevent.stop="openMenu($event, it)"
-              >
-                <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
+        </div>
+      </div>
+
+        <!-- особые карточки: отдельный блок ниже инвентаря, вне его прокрутки -->
+        <div class="shrink-0 mt-4 pt-4 border-t border-slate-800">
+          <h2 class="text-lg font-bold mb-1">🃏 Особые карточки</h2>
+          <p class="text-xs text-slate-400 mb-3">
+            Карточки выпадают из колеса фортуны в <router-link to="/shop" class="text-amber-300 hover:underline">магазине</router-link>.
+            Анализаторы применяются во время партии, усилители — прямо здесь.
+          </p>
+          <div class="max-h-[38dvh] overflow-y-auto pr-2">
+          <div v-if="!cardsLoaded" class="text-xs text-slate-500">Загрузка карточек…</div>
+          <div v-else-if="cards.length === 0" class="text-sm text-slate-500">
+            Карточек пока нет — загляните в <router-link to="/shop" class="text-amber-300 hover:underline">магазин</router-link> и крутаните колесо фортуны.
+          </div>
+          <div v-else class="flex flex-col gap-4">
+            <div v-for="set in cardSets" :key="set.id" class="panel p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-lg">{{ set.icon }}</span>
+                <h3 class="font-semibold text-sm">{{ set.name }}</h3>
+              </div>
+              <p class="text-xs text-slate-400 mb-3">{{ set.desc }}</p>
+              <div class="flex flex-col gap-2">
+                <div
+                  v-for="c in ownedCardsOf(set.id)"
+                  :key="c.cardId"
+                  class="flex items-center gap-3 rounded-lg border border-slate-700/70 bg-slate-800/40 px-3 py-2"
+                >
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium truncate">{{ cardName(c.cardId) }}</div>
+                    <div class="text-[11px] text-slate-400 leading-snug">{{ cardDesc(c.cardId) }}</div>
+                  </div>
+                  <span class="text-amber-300 font-mono text-sm shrink-0">×{{ c.count }}</span>
+                  <button
+                    v-if="isAmplifier(c.cardId)"
+                    class="btn-small shrink-0 px-3"
+                    :disabled="busyCard === c.cardId"
+                    @click="useAmplifier(c.cardId)"
+                  >
+                    Использовать
+                  </button>
+                  <span v-else class="text-[10px] text-slate-500 shrink-0">в партии</span>
+                </div>
               </div>
             </div>
           </div>
-
+          </div>
         </div>
-      </div>
+      </template>
 
       <!-- контекстное меню предмета -->
       <template v-if="ctxMenu">
@@ -133,9 +187,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { fmt, INV_COLS, INV_ROWS, RARITY_LABEL } from '@auctioneer/shared';
-import type { InventoryRow, Profile } from '@auctioneer/shared';
-import { post } from '../lib/api';
+import { fmt, INV_COLS, INV_ROWS, RARITY_LABEL, CARD_DEFS, CARD_SETS } from '@auctioneer/shared';
+import type { InventoryRow, ItemInstance, Profile } from '@auctioneer/shared';
+import { get, post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
@@ -154,6 +208,66 @@ const query = ref('');
 const gridEl = ref<HTMLElement | null>(null);
 const dragId = ref<string | null>(null);
 const hoverTarget = ref<{ x: number; y: number; w: number; h: number; ok: boolean } | null>(null);
+
+// ---------- особые карточки ----------
+
+interface OwnedCard {
+  cardId: string;
+  count: number;
+}
+
+const cards = ref<OwnedCard[]>([]);
+const cardsLoaded = ref(false);
+const busyCard = ref<string | null>(null);
+const cardSets = CARD_SETS;
+const cardDefById = new Map(CARD_DEFS.map((d) => [d.id, d]));
+
+function cardName(id: string): string {
+  return cardDefById.get(id)?.name ?? id;
+}
+
+function cardDesc(id: string): string {
+  return cardDefById.get(id)?.desc ?? '';
+}
+
+function isAmplifier(id: string): boolean {
+  return cardDefById.get(id)?.setId === 'amplifiers';
+}
+
+function ownedCardsOf(setId: string): OwnedCard[] {
+  return cards.value.filter((c) => cardDefById.get(c.cardId)?.setId === setId);
+}
+
+async function loadCards(): Promise<void> {
+  try {
+    cards.value = await get<OwnedCard[]>('/api/cards');
+  } catch {
+    /* ignore */
+  }
+  cardsLoaded.value = true;
+}
+
+/** Применить усилитель: случайный предмет слабее цели -> случайный предмет нужного качества */
+async function useAmplifier(cardId: string): Promise<void> {
+  if (busyCard.value) return;
+  busyCard.value = cardId;
+  try {
+    const res = await post<{ ok: boolean; removed?: { name: string; rarity: string; value: number }; item?: ItemInstance }>(
+      '/api/cards/amplify',
+      { cardId },
+    );
+    const removed = res.removed;
+    const item = res.item;
+    if (removed && item) {
+      game.pushToast('«' + removed.name + '» → «' + item.name + '» (' + RARITY_LABEL[item.rarity] + ')');
+    }
+    await loadCards();
+    profile.value = await auth.fetchMe();
+  } catch (err) {
+    game.pushToast((err as Error).message, 'error');
+  }
+  busyCard.value = null;
+}
 
 const inventory = computed<InventoryRow[]>(() => profile.value?.inventory ?? []);
 const totalValue = computed(() => inventory.value.reduce((s, i) => s + i.value, 0));
@@ -221,14 +335,32 @@ const layout = computed<{ items: PackedItem[]; overflow: InventoryRow[] }>(() =>
   return { items: out, overflow };
 });
 
-const cellCount = INV_COLS * INV_ROWS;
+// Адаптивная высота сетки: показываем только занятые строки (плюс небольшой запас),
+// чтобы раздел «Особые карточки» был сразу под предметами, а не за 24 строками
+// пустых ячеек. Во время перетаскивания сетка раскрывается до полных 24 строк —
+// предмет по-прежнему можно положить в любую свободную клетку.
+const MIN_GRID_ROWS = 8;
+const EXTRA_GRID_ROWS = 2;
+
+const dragging = computed(() => dragId.value !== null);
+
+const gridRows = computed(() => {
+  if (dragging.value) return INV_ROWS;
+  let maxRow = 0;
+  for (const p of layout.value.items) {
+    maxRow = Math.max(maxRow, p.y + p.it.h);
+  }
+  return Math.min(INV_ROWS, Math.max(MIN_GRID_ROWS, maxRow + EXTRA_GRID_ROWS));
+});
+
+const cellCount = computed(() => INV_COLS * gridRows.value);
 
 const gridStyle = computed(() => ({
   gridTemplateColumns: 'repeat(' + INV_COLS + ', ' + CELL + 'px)',
   gridAutoRows: CELL + 'px',
   gap: GAP + 'px',
   width: (INV_COLS * CELL + (INV_COLS - 1) * GAP + PAD * 2) + 'px',
-  height: (INV_ROWS * CELL + (INV_ROWS - 1) * GAP + PAD * 2) + 'px',
+  height: (gridRows.value * CELL + (gridRows.value - 1) * GAP + PAD * 2) + 'px',
 }));
 
 function itemStyle(p: PackedItem): Record<string, string> {
@@ -402,6 +534,7 @@ onMounted(async () => {
   } catch {
     /* guard отправит на /login */
   }
+  void loadCards();
 });
 </script>
 

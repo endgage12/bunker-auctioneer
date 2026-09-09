@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { config } from './config';
 import { generateStarterPack, mulberry32, START_CASH } from '@auctioneer/shared';
 import { generateSantaReward, INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_TTL_MS, SANTA_COLS, SANTA_MIN_ITEMS, SANTA_ROWS, SETS, marketFee, santaRewardCount, santaTimerMs } from '@auctioneer/shared';
+import { CARD_DEFS, RARITY_LABEL, RARITY_ORDER, WHEEL_TICKET_DEF_ID, WHEEL_TICKET_NAME, findCard, pickCardByWeight } from '@auctioneer/shared';
 import type {
   AdminBank,
   BankTx,
@@ -136,6 +137,12 @@ const SCHEMA = [
   '  items_out INTEGER NOT NULL,',
   '  value_out INTEGER NOT NULL',
   ');',
+  'CREATE TABLE IF NOT EXISTS cards (',
+  '  id TEXT PRIMARY KEY,',
+  '  user_id TEXT NOT NULL,',
+  '  card_id TEXT NOT NULL,',
+  '  created_at INTEGER NOT NULL',
+  ');',
   'CREATE TABLE IF NOT EXISTS bank_transactions (',
   '  id TEXT PRIMARY KEY,',
   '  at INTEGER NOT NULL,',
@@ -162,6 +169,7 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS idx_market_history_user ON market_history(user_id);',
   'CREATE INDEX IF NOT EXISTS idx_santa_items_user ON santa_items(user_id);',
   'CREATE INDEX IF NOT EXISTS idx_santa_cycles_user ON santa_cycles(user_id);',
+  'CREATE INDEX IF NOT EXISTS idx_cards_user ON cards(user_id);',
 ].join('\n');
 
 db.exec(SCHEMA);
@@ -1296,6 +1304,184 @@ export function takeFromSanta(userId: string, itemId: string, x?: number, y?: nu
       w,
       h,
     },
+  };
+}
+
+// ---------- Особые карточки и магазин ----------
+
+export interface PlayerCardGroup {
+  cardId: string;
+  count: number;
+}
+
+/** Карточки игрока, сгруппированные по определению (в порядке каталога карточек) */
+export function getCards(userId: string): PlayerCardGroup[] {
+  const rows = db
+    .prepare('SELECT card_id, COUNT(*) AS n FROM cards WHERE user_id = ? GROUP BY card_id')
+    .all(userId) as unknown as Row[];
+  const byCard = new Map(rows.map((r) => [String(r.card_id), Number(r.n)]));
+  const out: PlayerCardGroup[] = [];
+  for (const def of CARD_DEFS) {
+    const count = byCard.get(def.id) ?? 0;
+    if (count > 0) out.push({ cardId: def.id, count });
+  }
+  return out;
+}
+
+/** Число «Пыльных ваз» в свободном инвентаре (билеты для колеса фортуны) */
+function countVases(userId: string): number {
+  const row = db
+    .prepare(
+      'SELECT COUNT(*) AS n FROM items WHERE user_id = ? AND def_id = ? AND game_id IS NULL AND id NOT IN (SELECT item_id FROM market_listings) AND id NOT IN (SELECT item_id FROM showcase_items)',
+    )
+    .get(userId, WHEEL_TICKET_DEF_ID) as Row | undefined;
+  return Number(row?.n ?? 0);
+}
+
+export interface ShopState {
+  cards: PlayerCardGroup[];
+  vaseCount: number;
+  ticketDefId: string;
+  ticketName: string;
+  ticketValue: number;
+}
+
+/** Состояние магазина: билеты (вазы), коллекция карточек */
+export function getShopState(userId: string): ShopState {
+  const ticket = ITEM_CATALOG.find((d) => d.id === WHEEL_TICKET_DEF_ID);
+  return {
+    cards: getCards(userId),
+    vaseCount: countVases(userId),
+    ticketDefId: WHEEL_TICKET_DEF_ID,
+    ticketName: WHEEL_TICKET_NAME,
+    ticketValue: ticket?.value ?? 0,
+  };
+}
+
+export interface SpinResult {
+  ok: boolean;
+  error?: string;
+  cardId?: string;
+  cardName?: string;
+  setId?: 'analyzers' | 'amplifiers';
+  instanceId?: string;
+}
+
+/** Крутка колеса фортуны: тратит 1 «Пыльную вазу» и выдаёт случайную карточку */
+export function spinWheel(userId: string, rng: () => number = Math.random): SpinResult {
+  const vase = db
+    .prepare(
+      'SELECT id FROM items WHERE user_id = ? AND def_id = ? AND game_id IS NULL AND id NOT IN (SELECT item_id FROM market_listings) AND id NOT IN (SELECT item_id FROM showcase_items) LIMIT 1',
+    )
+    .get(userId, WHEEL_TICKET_DEF_ID) as Row | undefined;
+  if (!vase) {
+    return { ok: false, error: 'Для крутки нужна «' + WHEEL_TICKET_NAME + '» — билет колеса фортуны' };
+  }
+  const def = pickCardByWeight(rng);
+  const instanceId = crypto.randomUUID();
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM items WHERE id = ?').run(String(vase.id));
+    db.prepare('INSERT INTO cards (id, user_id, card_id, created_at) VALUES (?, ?, ?, ?)').run(
+      instanceId,
+      userId,
+      def.id,
+      Date.now(),
+    );
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return { ok: true, cardId: def.id, cardName: def.name, setId: def.setId, instanceId };
+}
+
+/** Потратить одну карточку игрока указанного вида (самую старую) */
+export function consumeCardByDef(userId: string, cardId: string): boolean {
+  const row = db
+    .prepare('SELECT id FROM cards WHERE user_id = ? AND card_id = ? ORDER BY created_at ASC, rowid ASC LIMIT 1')
+    .get(userId, cardId) as Row | undefined;
+  if (!row) return false;
+  db.prepare('DELETE FROM cards WHERE id = ?').run(String(row.id));
+  return true;
+}
+
+export interface AmplifyResult {
+  ok: boolean;
+  error?: string;
+  /** что было превращено */
+  removed?: { name: string; rarity: Rarity; value: number };
+  /** что получено */
+  item?: ItemInstance;
+}
+
+/**
+ * Усилитель: случайный свободный предмет инвентаря слабее целевого качества
+ * превращается в случайный предмет нужного качества (никогда не понижает).
+ */
+export function amplifyItem(userId: string, cardId: string): AmplifyResult {
+  const def = findCard(cardId);
+  if (!def || def.setId !== 'amplifiers' || !def.rarity) return { ok: false, error: 'Карточка не найдена' };
+  const target = def.rarity;
+  const targetIdx = RARITY_ORDER.indexOf(target);
+  const owned = db
+    .prepare('SELECT id FROM cards WHERE user_id = ? AND card_id = ? ORDER BY created_at ASC, rowid ASC LIMIT 1')
+    .get(userId, cardId) as Row | undefined;
+  if (!owned) return { ok: false, error: 'У вас нет карточки «' + def.name + '»' };
+  const candidates = db
+    .prepare(
+      'SELECT * FROM items WHERE user_id = ? AND game_id IS NULL AND id NOT IN (SELECT item_id FROM market_listings) AND id NOT IN (SELECT item_id FROM showcase_items)',
+    )
+    .all(userId) as unknown as Row[];
+  const weaker = candidates.filter((r) => RARITY_ORDER.indexOf(String(r.rarity) as Rarity) < targetIdx);
+  if (weaker.length === 0) {
+    return { ok: false, error: 'Нет предметов слабее «' + RARITY_LABEL[target] + '» качества — усиление не к чему применить' };
+  }
+  const victim = weaker[Math.floor(Math.random() * weaker.length)];
+  const pool = ITEM_CATALOG.filter((d) => d.rarity === target);
+  const nd = pool[Math.floor(Math.random() * pool.length)];
+  const newItem: ItemInstance = {
+    id: crypto.randomUUID(),
+    defId: nd.id,
+    name: nd.name,
+    rarity: nd.rarity,
+    value: nd.value,
+    w: nd.w,
+    h: nd.h,
+  };
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM items WHERE id = ?').run(String(victim.id));
+    const slot = findFreeSlot(userId, newItem.w, newItem.h);
+    if (!slot) {
+      db.exec('ROLLBACK');
+      return { ok: false, error: 'Нет места в инвентаре для усиленного предмета' };
+    }
+    db.prepare(
+      'INSERT INTO items (id, user_id, def_id, name, rarity, value, w, h, game_id, inv_x, inv_y, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
+    ).run(
+      newItem.id,
+      userId,
+      newItem.defId,
+      newItem.name,
+      newItem.rarity,
+      newItem.value,
+      newItem.w,
+      newItem.h,
+      slot.x,
+      slot.y,
+      Date.now(),
+    );
+    db.prepare('DELETE FROM cards WHERE id = ?').run(String(owned.id));
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return {
+    ok: true,
+    removed: { name: String(victim.name), rarity: String(victim.rarity) as Rarity, value: Number(victim.value) },
+    item: newItem,
   };
 }
 

@@ -41,6 +41,7 @@
             subtitle="все предметы раскрыты"
             mode="auction"
             fit="width"
+            :rarity-hints="game.private?.rarityHints"
           />
         </div>
         <p class="text-center text-xs text-slate-500">
@@ -81,19 +82,14 @@
             :title="boardTitle"
             :subtitle="boardSubtitle"
             mode="auction"
+            :rarity-hints="game.private?.rarityHints"
           />
         </div>
       </main>
 
       <!-- Правая колонка: особые карточки -->
       <aside class="w-80 shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
-        <div class="panel p-5 flex flex-col items-center justify-center gap-2 min-h-40">
-          <div class="text-3xl">🃏</div>
-          <h3 class="font-semibold text-sm">Особые карточки</h3>
-          <p class="text-xs text-slate-500 text-center">
-            Здесь появятся особые карточки, влияющие на ход игры. Раздел в разработке.
-          </p>
-        </div>
+        <CardsPanel :phase="game.phase" />
         <AntePanel v-if="game.phase === 'betting'" :game="game" :me-id="meId" @ante="onAnte" />
         <AuctionPanel v-if="game.phase === 'auction'" :game="game" :me-id="meId" @bid="onBid" />
       </aside>
@@ -124,6 +120,7 @@
             :subtitle="boardSubtitle"
             mode="auction"
             fit="width"
+            :rarity-hints="game.private?.rarityHints"
           />
         </div>
 
@@ -140,7 +137,8 @@
       <footer
         class="shrink-0 z-20 border-t border-slate-800 bg-slate-950/95 backdrop-blur px-2 sm:px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       >
-        <div class="max-h-[45dvh] overflow-y-auto overscroll-contain">
+        <div class="max-h-[45dvh] overflow-y-auto overscroll-contain flex flex-col gap-2">
+          <CardsPanel v-if="game.phase === 'auction'" :phase="game.phase" />
           <AntePanel v-if="game.phase === 'betting'" :game="game" :me-id="meId" @ante="onAnte" />
           <AuctionPanel v-if="game.phase === 'auction'" :game="game" :me-id="meId" @bid="onBid" />
         </div>
@@ -163,6 +161,7 @@ import BoardView from '../components/BoardView.vue';
 import PlayersPanel from '../components/PlayersPanel.vue';
 import AntePanel from '../components/AntePanel.vue';
 import AuctionPanel from '../components/AuctionPanel.vue';
+import CardsPanel from '../components/CardsPanel.vue';
 import LogPanel from '../components/LogPanel.vue';
 import ResultModal from '../components/ResultModal.vue';
 

@@ -36,6 +36,7 @@ import type {
   PublicItem,
   PublicPlayer,
   Rarity,
+  RarityHint,
 } from '@auctioneer/shared';
 
 export interface EnginePlayerSeed {
@@ -140,6 +141,8 @@ export class Game {
   private bonuses: Record<string, string[]> = {};
   private privateReveals = new Map<string, PrivateReveal[]>();
   private privateHints = new Map<string, string[]>();
+  /** личные подсказки о редкости скрытых предметов (карточки-анализаторы) */
+  private rarityHints = new Map<string, RarityHint[]>();
   private onStateChange?: () => void;
   private onFinished?: (report: FinalReport) => void;
 
@@ -394,12 +397,30 @@ export class Game {
     }
   }
 
+  /**
+   * Карточка-анализатор: раскрывает редкость случайных скрытых предметов стола
+   * лично игроку (границы предметов подсвечиваются цветом редкости только у него).
+   * Возвращает текст ошибки или null при успехе.
+   */
+  useAnalyzerCard(playerId: string, count: number): string | null {
+    if (this.phase !== 'auction' || !this.auction) return 'Анализатор можно применить только во время торгов';
+    const hidden = this.placed.filter((pl) => !pl.revealed);
+    if (hidden.length === 0) return 'На столе нет скрытых предметов';
+    const picked = this.shuffle(hidden).slice(0, Math.max(1, Math.min(count, hidden.length)));
+    const hints: RarityHint[] = picked.map((pl) => ({ itemId: pl.it.id, rarity: pl.it.rarity }));
+    const prev = this.rarityHints.get(playerId) ?? [];
+    this.rarityHints.set(playerId, [...prev, ...hints]);
+    this.changed();
+    return null;
+  }
+
   /** Персональная информация для конкретного игрока (только для его сокета) */
   personalSnapshot(playerId: string): PlayerPrivate | null {
     const reveals = this.privateReveals.get(playerId) ?? [];
     const hints = this.privateHints.get(playerId) ?? [];
-    if (reveals.length === 0 && hints.length === 0) return null;
-    return { reveals: reveals.slice(), hints: hints.slice() };
+    const rarityHints = this.rarityHints.get(playerId) ?? [];
+    if (reveals.length === 0 && hints.length === 0 && rarityHints.length === 0) return null;
+    return { reveals: reveals.slice(), hints: hints.slice(), rarityHints: rarityHints.slice() };
   }
 
   private revealForRound(round: number): void {
@@ -734,7 +755,9 @@ export class Game {
       for (let dy = 0; dy < pl.h; dy++) {
         for (let dx = 0; dx < pl.w; dx++) {
           const idx = (pl.y + dy) * GRID_W + (pl.x + dx);
-          cells[idx] = pl.revealed ? { kind: 'item', itemId: pl.it.id } : { kind: 'closed' };
+          // у закрытых клеток тоже храним itemId — по нему клиент рисует границы
+          // предметов, редкость которых раскрыта лично игроку (карточки-анализаторы)
+          cells[idx] = pl.revealed ? { kind: 'item', itemId: pl.it.id } : { kind: 'closed', itemId: pl.it.id };
         }
       }
     }

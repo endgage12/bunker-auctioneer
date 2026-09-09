@@ -7,6 +7,7 @@ const router = createRouter({
     { path: '/', name: 'lobby', component: () => import('./views/LobbyView.vue') },
     { path: '/market', name: 'market', component: () => import('./views/MarketView.vue') },
     { path: '/inventory', name: 'inventory', component: () => import('./views/InventoryView.vue') },
+    { path: '/shop', name: 'shop', component: () => import('./views/ShopView.vue') },
     { path: '/santa', name: 'santa', component: () => import('./views/SantaView.vue') },
     { path: '/sets', name: 'sets', component: () => import('./views/HideoutView.vue') },
     // старый адрес раздела «Убежище» — редирект на «Сеты»

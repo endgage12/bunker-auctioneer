@@ -86,6 +86,10 @@ export const useGameStore = defineStore('game', {
     bid(amount: number): void {
       this.socket?.emit(C2S.bid, { amount });
     },
+    /** Применить карточку-анализатор в партии (с подтверждением сервера) */
+    useCard(cardId: string): Promise<{ ok: boolean; error?: string }> {
+      return this.emitAck(C2S.useCard, { cardId });
+    },
     sync(code: string): void {
       this.socket?.emit(C2S.sync, { code });
     },

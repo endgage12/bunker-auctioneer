@@ -168,6 +168,39 @@ export function createRestRouter(): Router {
     res.json({ ok: true });
   });
 
+  // ---------- Магазин и особые карточки ----------
+
+  r.get('/api/shop', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    res.json(db.getShopState(userId));
+  });
+
+  r.post('/api/shop/spin', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const result = db.spinWheel(userId);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json(result);
+  });
+
+  r.get('/api/cards', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    res.json(db.getCards(userId));
+  });
+
+  r.post('/api/cards/amplify', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const body = (req.body ?? {}) as { cardId?: string };
+    const result = db.amplifyItem(userId, String(body.cardId ?? ''));
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true, removed: result.removed, item: result.item });
+  });
+
   r.get('/api/debug/rooms', (_req, res) => {
     if (!config.allowDevLogin) {
       res.status(404).json({ error: 'Not found' });

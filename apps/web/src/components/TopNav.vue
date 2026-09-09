@@ -42,6 +42,9 @@
             <router-link to="/inventory" class="nav-link" :class="{ 'nav-link-active': $route.name === 'inventory' }">
               Инвентарь
             </router-link>
+            <router-link to="/shop" class="nav-link" :class="{ 'nav-link-active': $route.name === 'shop' }">
+              Магазин
+            </router-link>
             <router-link to="/santa" class="nav-link" :class="{ 'nav-link-active': $route.name === 'santa' }">
               Тайный Санта
             </router-link>
@@ -85,6 +88,9 @@
         </router-link>
         <router-link to="/inventory" class="nav-link" :class="{ 'nav-link-active': $route.name === 'inventory' }">
           Инвентарь
+        </router-link>
+        <router-link to="/shop" class="nav-link" :class="{ 'nav-link-active': $route.name === 'shop' }">
+          Магазин
         </router-link>
         <router-link to="/santa" class="nav-link" :class="{ 'nav-link-active': $route.name === 'santa' }">
           Тайный Санта

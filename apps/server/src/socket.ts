@@ -1,6 +1,6 @@
 // Socket.IO: комнаты, игровые действия, рассылка состояний
 import type { Server, Socket } from 'socket.io';
-import { C2S, S2C, AUTO_START_PLAYERS, MIN_PLAYERS } from '@auctioneer/shared';
+import { C2S, S2C, AUTO_START_PLAYERS, MIN_PLAYERS, findCard } from '@auctioneer/shared';
 import * as db from './db';
 import { canJoin, manager, waitingSnapshot } from './game/manager';
 import type { Room } from './game/manager';
@@ -272,6 +272,32 @@ export function attachSocket(io: Server): void {
         const err = game.submitBid(uid, Number(payload.amount));
         if (err) sendError(socket, err);
       });
+    });
+
+    /** Применить карточку-анализатор во время партии (личная, влияет только на владельца) */
+    socket.on(C2S.useCard, (payload: { cardId?: string }, ack?: (resp: { ok: boolean; error?: string }) => void) => {
+      const room = findRoomOf(socket);
+      if (!room?.game) {
+        ack?.({ ok: false, error: 'Карточку можно применить только в партии' });
+        return;
+      }
+      const def = findCard(String(payload?.cardId ?? ''));
+      if (!def || def.setId !== 'analyzers' || !def.reveals) {
+        ack?.({ ok: false, error: 'Карточка не найдена' });
+        return;
+      }
+      if (!db.getCards(uid).some((c) => c.cardId === def.id)) {
+        ack?.({ ok: false, error: 'У вас нет карточки «' + def.name + '»' });
+        return;
+      }
+      const gameErr = room.game.useAnalyzerCard(uid, def.reveals);
+      if (gameErr) {
+        ack?.({ ok: false, error: gameErr });
+        return;
+      }
+      db.consumeCardByDef(uid, def.id);
+      ack?.({ ok: true });
+      broadcast(room);
     });
 
     socket.on(C2S.sync, (payload: { code?: string }) => {

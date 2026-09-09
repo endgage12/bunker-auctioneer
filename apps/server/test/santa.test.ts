@@ -111,7 +111,7 @@ describe('Тайный Санта: количество и генерация д
         expect(it.value).toBe(def!.value);
         expect(it.w).toBe(def!.w);
         expect(it.h).toBe(def!.h);
-        expect(it.defId).toMatch(/^(white|green|blue|purple|gold|red)-\d+$/);
+        expect(it.defId).toMatch(/^(white|green|blue|purple|yellow|gold|red)-\d+$/);
       }
     }
   });

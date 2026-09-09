@@ -30,10 +30,10 @@ export function santaTimerMs(value: number): number {
 // Веса редкостей на краях шкалы «ценности вложений» (0 и 250 000+).
 // Между ними веса линейно интерполируются: чем больше вложено, тем выше шанс редкого дропа.
 const SANTA_WEIGHT_AT_ZERO: Record<Rarity, number> = {
-  white: 55, green: 30, blue: 10, purple: 4, gold: 1, red: 0,
+  white: 55, green: 30, blue: 10, purple: 4, yellow: 0.5, gold: 0.5, red: 0,
 };
 const SANTA_WEIGHT_AT_MAX: Record<Rarity, number> = {
-  white: 15, green: 25, blue: 25, purple: 18, gold: 12, red: 5,
+  white: 15, green: 24, blue: 23, purple: 15, yellow: 6, gold: 12, red: 5,
 };
 
 /**

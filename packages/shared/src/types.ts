@@ -1,14 +1,15 @@
 // Общие типы, разделяемые сервером и клиентом
 
-export type Rarity = 'white' | 'green' | 'blue' | 'purple' | 'gold' | 'red';
+export type Rarity = 'white' | 'green' | 'blue' | 'purple' | 'yellow' | 'gold' | 'red';
 
-export const RARITY_ORDER: Rarity[] = ['white', 'green', 'blue', 'purple', 'gold', 'red'];
+export const RARITY_ORDER: Rarity[] = ['white', 'green', 'blue', 'purple', 'yellow', 'gold', 'red'];
 
 export const RARITY_LABEL: Record<Rarity, string> = {
   white: 'Белый',
   green: 'Зелёный',
   blue: 'Синий',
   purple: 'Фиолетовый',
+  yellow: 'Жёлтый',
   gold: 'Золотой',
   red: 'Красный',
 };
@@ -67,7 +68,7 @@ export interface PublicPlayer {
 
 export interface PublicCell {
   kind: 'empty' | 'closed' | 'item';
-  /** id предмета, если kind === 'item' */
+  /** id предмета на клетке (у закрытых клеток тоже есть — для личных подсказок) */
   itemId?: string;
 }
 
@@ -161,10 +162,18 @@ export interface PrivateReveal {
   h: number;
 }
 
+/** Личная подсказка о редкости скрытого предмета (карточки-анализаторы) */
+export interface RarityHint {
+  itemId: string;
+  rarity: Rarity;
+}
+
 /** Персональная информация игрока в партии (рассылается только ему) */
 export interface PlayerPrivate {
   reveals: PrivateReveal[];
   hints: string[];
+  /** границы скрытых предметов, редкость которых раскрыта лично этому игроку */
+  rarityHints: RarityHint[];
 }
 
 export interface PublicGame {
@@ -300,6 +309,8 @@ export const C2S = {
   ready: 'room:ready',
   ante: 'game:ante',
   bid: 'game:bid',
+  /** применить особую карточку (анализатор редкости) во время партии */
+  useCard: 'card:use',
   sync: 'game:sync',
 } as const;
 

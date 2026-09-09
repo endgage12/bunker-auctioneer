@@ -50,3 +50,8 @@ export const REVEAL_FRACTIONS = [0.25, 0.5, 0.75, 1] as const;
 export const TABLE_VALUE_MIN = 300_000;
 /** ...и максимальная */
 export const TABLE_VALUE_MAX = 9_000_000;
+
+/** Минимальная доля клеток стола, занятая предметами */
+export const TABLE_FILL_MIN = 0.5;
+/** Максимальная доля клеток стола, занятая предметами */
+export const TABLE_FILL_MAX = 0.95;

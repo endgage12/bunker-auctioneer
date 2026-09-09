@@ -10,6 +10,8 @@ import {
   MULTIPLIERS,
   MULTIPLIER_PCT,
   PRIZE_RARITY,
+  TABLE_FILL_MAX,
+  TABLE_FILL_MIN,
   TABLE_VALUE_MAX,
   TABLE_VALUE_MIN,
   REVEAL_FRACTIONS,
@@ -303,14 +305,16 @@ export class Game {
 
   /**
    * Стол заполняется предметами до случайной суммарной стоимости
-   * в диапазоне TABLE_VALUE_MIN (300 000) .. TABLE_VALUE_MAX (9 000 000).
-   * Предметы кладутся вплотную друг к другу от левого нижнего угла;
-   * заполнение клеток не превышает 95% поля. Когда требуемая плотность
-   * ценности высока, редкости смещаются в сторону дорогих предметов.
+   * в диапазоне TABLE_VALUE_MIN (300 000) .. TABLE_VALUE_MAX (9 000 000),
+   * при этом занято не менее TABLE_FILL_MIN (50%) и не более
+   * TABLE_FILL_MAX (95%) клеток поля. Предметы кладутся вплотную друг
+   * к другу от правого верхнего угла. Когда требуемая плотность ценности
+   * высока, редкости смещаются в сторону дорогих предметов.
    */
   private buildTable(): void {
     const totalCells = GRID_W * GRID_H;
-    const maxCover = Math.floor(totalCells * 0.95);
+    const minCover = Math.floor(totalCells * TABLE_FILL_MIN);
+    const maxCover = Math.floor(totalCells * TABLE_FILL_MAX);
     // целевая стоимость стола в диапазоне 300 000..9 000 000 со смещением к минимуму:
     // дешёвые столы выпадают чаще всего, шанс падает с ростом стоимости (куб от rng)
     const roll = this.rng();
@@ -320,7 +324,7 @@ export class Game {
     let value = 0;
     let covered = 0;
     let guard = 0;
-    while (value < target && guard++ < 600) {
+    while ((value < target || covered < minCover) && guard++ < 600) {
       // сколько ценности нужно «уместить» в оставшиеся клетки
       const densityNeed = (target - value) / Math.max(1, maxCover - covered);
       const weights = densityNeed > EXPENSIVE_DENSITY ? EXPENSIVE_RARITY : PRIZE_RARITY;

@@ -17,15 +17,15 @@ export const MAX_PLAYERS = 6;
 export const AUTO_START_PLAYERS = 4;
 
 /** Вступительная ставка: минимум и максимум */
-export const ANTE_MIN = 10_000;
+export const ANTE_MIN = 30_000;
 export const ANTE_MAX = 100_000;
 
 /** Стартовый кошелёк нового игрока */
-export const START_CASH = 250_000;
+export const START_CASH = 500_000;
 
-/** Новый игрок получает предметы суммарной стоимостью в этом диапазоне (~300k) */
-export const STARTER_PACK_MIN = 280_000;
-export const STARTER_PACK_MAX = 330_000;
+/** Новый игрок получает предметы суммарной стоимостью в этом диапазоне (~600k) */
+export const STARTER_PACK_MIN = 560_000;
+export const STARTER_PACK_MAX = 660_000;
 
 /** Тайминги фаз, секунды */
 export const BETTING_SECONDS = 60;

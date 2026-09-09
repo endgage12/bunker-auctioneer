@@ -45,7 +45,7 @@ const emit = defineEmits<{ (e: 'ante', amount: number): void }>();
 const amount = ref(ANTE_MIN);
 
 const myPlayer = computed(() => props.game.players.find((p) => p.id === props.meId) ?? null);
-const presets = computed(() => [ANTE_MIN, 25_000, 50_000, ANTE_MAX]);
+const presets = computed(() => [ANTE_MIN, 50_000, 75_000, ANTE_MAX]);
 
 function submit(): void {
   const cash = myPlayer.value?.cash ?? 0;

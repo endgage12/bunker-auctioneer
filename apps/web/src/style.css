@@ -113,6 +113,34 @@ button {
   touch-action: manipulation;
 }
 
+/* Курсор-указатель для всего кликабельного.
+   Tailwind v4 по умолчанию ставит кнопкам cursor: default — возвращаем pointer,
+   а неактивным элементам — not-allowed. Утилиты (cursor-grab, disabled:cursor-not-allowed
+   и т.п.) лежат в слое utilities и переопределяют эти базовые правила. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  a[href],
+  summary,
+  select:not(:disabled),
+  label[for],
+  input[type='checkbox']:not(:disabled),
+  input[type='radio']:not(:disabled),
+  input[type='range'],
+  input[type='color'],
+  input[type='file'],
+  input[type='submit']:not(:disabled),
+  input[type='button']:not(:disabled),
+  input[type='reset']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role='button'][aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

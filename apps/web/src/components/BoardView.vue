@@ -293,6 +293,9 @@ function onItemClick(it: PublicItem): void {
 .board-cell.cell-hover-bad {
   background: rgba(244, 63, 94, 0.3);
 }
+.board-cell.clickable {
+  cursor: pointer;
+}
 .board-cell.clickable:hover {
   background: #1e293b;
 }

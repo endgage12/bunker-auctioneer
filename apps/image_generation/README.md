@@ -53,13 +53,17 @@ CLI-генератор изображений поверх локального 
 
 ## Иконки каталога игры (catalog_icons.py)
 
-Генерирует иконки 64x64 для всех 53 предметов каталога аукциона (список defId -> английский
+Генерирует иконки 64x64 для всех 62 предметов каталога аукциона (список defId -> английский
 промпт задан в самом скрипте). Фиксированный сид + тёмный единый фон, файлы называются
 по defId (white-0.png ... red-7.png) — готовы к копированию в apps/web/src/assets/items/.
 
     D:/ComfyUI/python_embeded/python.exe catalog_icons.py --out images/catalog
 
-Параметры: --seed, --lora, --gen-size, --bg-color, --keep-frac, --steps.
+Только часть каталога (например, жёлтая категория):
+
+    D:/ComfyUI/python_embeded/python.exe catalog_icons.py --only yellow- --out images/catalog
+
+Параметры: --seed, --lora, --gen-size, --bg-color, --keep-frac, --steps, --only.
 
 ## Иконки предметов 64x64 с одинаковым фоном (icons.py)
 

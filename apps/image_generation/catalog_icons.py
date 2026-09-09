@@ -59,6 +59,15 @@ CATALOG = [
     ("purple-6", "mist knight armor"),
     ("purple-7", "pandora box"),
     ("purple-8", "fortune teller crystal ball"),
+    ("yellow-0", "perfect amber sphere"),
+    ("yellow-1", "citrine gem earrings"),
+    ("yellow-2", "sunstone pendant"),
+    ("yellow-3", "gilded folding fan"),
+    ("yellow-4", "canary yellow diamond"),
+    ("yellow-5", "scroll with glowing solar runes"),
+    ("yellow-6", "jug of amber honey"),
+    ("yellow-7", "imperial topaz gem"),
+    ("yellow-8", "sunbeam tiara"),
     ("gold-0", "goblet of eternal feast"),
     ("gold-1", "sunset tiara"),
     ("gold-2", "sea god relic"),
@@ -92,7 +101,10 @@ def main():
     p.add_argument("--bg-color", default="20,20,24")
     p.add_argument("--keep-frac", type=float, default=0.55)
     p.add_argument("--out", default=None)
+    p.add_argument("--only", default=None, help="comma-separated defId prefixes to limit generation (e.g. yellow-)")
     args = p.parse_args()
+
+    only_prefixes = [s.strip() for s in (args.only or "").split(",") if s.strip()]
 
     lora_name, lora_strength = args.lora.rsplit(":", 1)
     loras = [(lora_name, float(lora_strength))]
@@ -113,6 +125,8 @@ def main():
 
     saved = []
     for def_id, phrase in CATALOG:
+        if only_prefixes and not any(def_id.startswith(pre) for pre in only_prefixes):
+            continue
         base.prompt = TEMPLATE.format(item=phrase)
         print("gen: " + def_id + " | " + phrase, flush=True)
         workflow = generate.build_workflow(base, args.seed, loras)
@@ -128,7 +142,8 @@ def main():
         tmp.unlink()
         saved.append(dest)
 
-    icons.make_preview(saved, out_dir / "catalog_preview.png", cell=96)
+    preview_name = "catalog_preview.png" if not only_prefixes else "catalog_preview_" + "_".join(only_prefixes) + ".png"
+    icons.make_preview(saved, out_dir / preview_name, cell=96)
     print("done: %d icons in %s" % (len(saved), out_dir))
     return 0
 

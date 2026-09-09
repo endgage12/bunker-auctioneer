@@ -117,7 +117,8 @@
 `apps/web/src/assets/items/{defId}.png`): в плитке предмета иконка — сверху по центру,
 название — снизу под ней, при наведении всплывает popover с деталями (редкость, стоимость,
 размер, номинал каталога). Перегенерация набора: `apps/image_generation/catalog_icons.py`
-(нужен запущенный ComfyUI и его python_embeded с Pillow).
+(нужен запущенный ComfyUI и его python_embeded с Pillow). Фавиконка (золотой молоток аукциона
+в ударе) генерируется через тот же ComfyUI: `apps/image_generation/favicon_icon.py gen|finalize`.
 
 ## Игровой экран
 

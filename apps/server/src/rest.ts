@@ -127,6 +127,16 @@ export function createRestRouter(): Router {
     res.json({ ok: true, value: result.value ?? 0 });
   });
 
+  r.post('/api/items/sell-all', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const result = db.sellAllToVendor(userId);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true, value: result.value ?? 0, count: result.count ?? 0 });
+  });
+
 
   r.post('/api/items/move', authRequired, (req, res) => {
     const userId = (req as AuthRequest).userId ?? '';

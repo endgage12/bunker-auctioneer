@@ -486,6 +486,7 @@ export interface MarketOpResult {
   price?: number;
   fee?: number;
   value?: number;
+  count?: number;
   item?: ItemInstance;
 }
 
@@ -625,6 +626,48 @@ export function cancelListing(userId: string, listingId: string): MarketOpResult
     if (slot) db.prepare('UPDATE items SET inv_x = ?, inv_y = ? WHERE id = ?').run(slot.x, slot.y, String(row.item_id));
   }
   return { ok: true };
+}
+
+/** Мгновенная продажа торговцу всех предметов инвентаря сразу (по номиналу) */
+export function sellAllToVendor(userId: string): MarketOpResult {
+  const user = getUserById(userId);
+  if (!user) return { ok: false, error: 'Пользователь не найден' };
+  // продаются те же предметы, что видны в инвентаре: не в партии, не на барахолке, не в витрине
+  const rows = db
+    .prepare(
+      'SELECT id, value FROM items WHERE user_id = ? AND game_id IS NULL ' +
+        'AND id NOT IN (SELECT item_id FROM market_listings) ' +
+        'AND id NOT IN (SELECT item_id FROM showcase_items)',
+    )
+    .all(userId) as unknown as Row[];
+  if (rows.length === 0) return { ok: false, error: 'Нет предметов для продажи' };
+  // сет «Тёплый очаг»: торговец покупает на 5% дороже номинала
+  const bonuses = getActiveSetBonuses(userId);
+  const bonus = bonuses.includes('trader_bonus') ? 1.05 : 1;
+  let total = 0;
+  db.exec('BEGIN');
+  try {
+    const upd = db.prepare('UPDATE items SET user_id = ?, inv_x = NULL, inv_y = NULL WHERE id = ?');
+    for (const r of rows) {
+      total += Math.round(Number(r.value) * bonus);
+      upd.run(HOUSE_ID, String(r.id));
+    }
+    db.prepare('UPDATE users SET cash = cash + ? WHERE id = ?').run(total, userId);
+    houseAdjust(-total, 'vendor', userId, 'Покупка всех предметов инвентаря у игрока');
+    recordMarketHistory(
+      userId,
+      'vendor',
+      { name: 'Продано предметов: ' + rows.length + ' шт.', rarity: 'white' },
+      total,
+      0,
+      'Торговец',
+    );
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return { ok: true, value: total, count: rows.length };
 }
 
 /** Мгновенная продажа торговцу по номиналу предмета */

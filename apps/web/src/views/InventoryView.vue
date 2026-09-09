@@ -18,6 +18,9 @@
             placeholder="Поиск по названию или редкости (от 2 символов)…"
           />
           <button class="btn-ghost shrink-0" @click="autoSort">Автосортировка</button>
+          <button class="btn-danger shrink-0" :disabled="inventory.length === 0" @click="sellAllOpen = true">
+            Продать всё
+          </button>
           <span v-if="searching" class="text-xs text-slate-400 ml-auto shrink-0">
             найдено: <b class="text-amber-300">{{ matchedCount }}</b> из {{ inventory.length }}
           </span>
@@ -45,6 +48,7 @@
               class="w-16 h-16 rounded overflow-hidden ring-1 ring-rose-500/50"
               :title="it.name + ' ' + it.w + 'x' + it.h + ' — ' + fmt(it.value)"
               @contextmenu.prevent.stop="openMenu($event, it)"
+              @click.capture="guardItemClick"
             >
               <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
             </div>
@@ -79,6 +83,7 @@
               @dragstart="onDragStart($event, p.it.id)"
               @dragend="onDragEnd"
               @contextmenu.prevent.stop="openMenu($event, p.it)"
+              @click.capture="guardItemClick"
             >
               <ItemCard :name="p.it.name" :rarity="p.it.rarity" :value="p.it.value" :def-id="p.it.defId" dense />
             </div>
@@ -160,6 +165,24 @@
           </button>
         </div>
       </template>
+
+      <!-- диалог: продать всё -->
+      <div v-if="sellAllOpen" class="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4" @click.self="sellAllOpen = false">
+        <div class="panel p-5 w-80">
+          <h3 class="font-semibold mb-1">Продать всё торговцу?</h3>
+          <p class="text-xs text-slate-400 mb-4">
+            {{ inventory.length }} предметов инвентаря будут проданы по номиналу за
+            <span class="text-amber-300 font-mono"><CoinAmount :value="totalValue" /></span>.
+            Предметы в партии, на барахолке и в витрине не затрагиваются.
+          </p>
+          <div class="flex justify-end gap-2">
+            <button class="btn-ghost" @click="sellAllOpen = false">Отмена</button>
+            <button class="btn-danger" :disabled="sellAllBusy || inventory.length === 0" @click="sellAll">
+              {{ sellAllBusy ? 'Продаём…' : 'Продать' }}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <!-- диалог: выставить на аукцион -->
       <div v-if="listItem" class="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4" @click.self="listItem = null">
@@ -380,8 +403,19 @@ function itemClass(it: InventoryRow): string {
 
 // ---------- drag & drop ----------
 
+/** после перетаскивания браузер может выдать «клик» — глушим его, чтобы не открывалось окно деталей */
+let dragClickGuardUntil = 0;
+
+function guardItemClick(e: MouseEvent): void {
+  if (Date.now() < dragClickGuardUntil) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+}
+
 function onDragStart(e: DragEvent, itemId: string): void {
   dragId.value = itemId;
+  dragClickGuardUntil = Date.now() + 350;
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', itemId);
@@ -391,6 +425,7 @@ function onDragStart(e: DragEvent, itemId: string): void {
 function onDragEnd(): void {
   dragId.value = null;
   hoverTarget.value = null;
+  dragClickGuardUntil = Date.now() + 350;
 }
 
 function draggedItem(): PackedItem | null {
@@ -526,6 +561,25 @@ async function sellItem(): Promise<void> {
   } catch (err) {
     game.pushToast((err as Error).message, 'error');
   }
+}
+
+// ---------- продать всё ----------
+
+const sellAllOpen = ref(false);
+const sellAllBusy = ref(false);
+
+async function sellAll(): Promise<void> {
+  if (sellAllBusy.value || inventory.value.length === 0) return;
+  sellAllBusy.value = true;
+  try {
+    const res = await post<{ ok: boolean; value?: number; count?: number }>('/api/items/sell-all');
+    game.pushToast('Продано предметов: ' + (res.count ?? 0) + ' шт. за ' + fmt(res.value ?? 0));
+    sellAllOpen.value = false;
+    profile.value = await auth.fetchMe();
+  } catch (err) {
+    game.pushToast((err as Error).message, 'error');
+  }
+  sellAllBusy.value = false;
 }
 
 onMounted(async () => {

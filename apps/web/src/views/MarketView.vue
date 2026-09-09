@@ -25,7 +25,7 @@
               :title="it.name + ' ' + it.w + 'x' + it.h + ' — номинал ' + fmt(it.value)"
               @click="openItem(it)"
             >
-              <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
+              <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense :click-details="false" />
             </div>
           </div>
         </div>
@@ -37,7 +37,7 @@
           <div v-else class="flex flex-col gap-2">
             <div v-for="l in myListings" :key="l.id" class="flex items-center gap-3 px-2 py-1.5 rounded-lg bg-slate-800/40">
               <div class="w-12 h-12 rounded overflow-hidden shrink-0">
-                <ItemCard :name="l.item.name" :rarity="l.item.rarity" :def-id="l.item.defId" dense :show-value="false" />
+                <ItemCard :name="l.item.name" :rarity="l.item.rarity" :def-id="l.item.defId" dense :show-value="false" :click-details="false" />
               </div>
               <div class="min-w-0 flex-1">
                 <div class="text-sm truncate">{{ l.item.name }}</div>
@@ -105,7 +105,7 @@
             class="flex items-center gap-3 px-2 py-2 rounded-lg bg-slate-800/40"
           >
             <div class="w-14 h-14 rounded overflow-hidden shrink-0">
-              <ItemCard :name="l.item.name" :rarity="l.item.rarity" :value="l.item.value" :def-id="l.item.defId" dense />
+              <ItemCard :name="l.item.name" :rarity="l.item.rarity" :value="l.item.value" :def-id="l.item.defId" dense :click-details="false" />
             </div>
             <div class="min-w-0 flex-1">
               <div class="text-sm truncate">
@@ -145,7 +145,7 @@
           </DialogHeader>
           <div class="mt-3 flex items-center gap-3">
             <div class="w-16 h-16 rounded-lg overflow-hidden shrink-0">
-              <ItemCard :name="modalItem.name" :rarity="modalItem.rarity" :value="modalItem.value" :def-id="modalItem.defId" dense />
+              <ItemCard :name="modalItem.name" :rarity="modalItem.rarity" :value="modalItem.value" :def-id="modalItem.defId" dense :click-details="false" />
             </div>
             <div class="text-sm text-slate-400 min-w-0">
               <div class="flex items-center gap-2">

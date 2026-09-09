@@ -246,17 +246,12 @@ function onHiddenClick(rect: { x: number; y: number; w: number; h: number }): vo
   hiddenModal.value = { w: rect.w, h: rect.h };
 }
 
-const canHover =
-  typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
-
 const boardTitle = computed(() =>
   game.value?.phase === 'betting' ? 'Игровой стол — ждём ставок' : 'Игровой стол',
 );
 const boardSubtitle = computed(() => {
   if (game.value?.phase === 'betting') return 'сделайте вступительную ставку на панели';
-  return canHover
-    ? 'наведите курсор на раскрытый предмет для подсказки'
-    : 'нажмите на раскрытый предмет для деталей';
+  return 'нажмите на предмет, чтобы увидеть цену и детали';
 });
 
 // сумма стоимости всех раскрытых предметов на столе

@@ -97,7 +97,7 @@
                 @dragend="onDragEnd"
                 @click.stop="onInvItemClick(p.it)"
               >
-                <ItemCard :name="p.it.name" :rarity="p.it.rarity" :value="p.it.value" :def-id="p.it.defId" dense />
+                <ItemCard :name="p.it.name" :rarity="p.it.rarity" :value="p.it.value" :def-id="p.it.defId" dense :click-details="false" />
               </div>
               <div
                 v-if="hoverTarget && hoverTarget.grid === 'inv'"
@@ -123,7 +123,7 @@
                   @dragend="onDragEnd"
                   @click="onInvItemClick(it)"
                 >
-                  <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
+                  <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense :click-details="false" />
                 </div>
               </div>
             </div>
@@ -162,7 +162,7 @@
                 @dragend="onDragEnd"
                 @click.stop="onBoxItemClick(it)"
               >
-                <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
+                <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense :click-details="false" />
                 <span
                   v-if="it.kind === 'sacrifice'"
                   class="lock-badge absolute inset-0 flex items-center justify-center bg-slate-950/55 text-lg"
@@ -188,7 +188,7 @@
                   class="w-16 h-16 rounded overflow-hidden ring-1 ring-amber-400/60"
                   :title="it.name + ' ' + it.w + 'x' + it.h + ' — ' + fmt(it.value)"
                 >
-                  <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense />
+                  <ItemCard :name="it.name" :rarity="it.rarity" :value="it.value" :def-id="it.defId" dense :click-details="false" />
                 </div>
               </div>
             </div>

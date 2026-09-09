@@ -1,14 +1,11 @@
 <template>
   <Popover v-model:open="open">
-    <PopoverTrigger as-child>
+    <PopoverTrigger as-child :disabled="true">
       <div
         class="item-card-inner"
         :class="dense ? 'dense' : ''"
         :style="cardStyle"
-        @mouseenter="open = hoverable"
-        @mouseleave="open = false"
-        @focusin="open = true"
-        @focusout="open = false"
+        @click="onClick"
       >
         <img
           v-if="iconUrl"
@@ -17,13 +14,13 @@
           draggable="false"
           class="item-icon select-none"
         />
-        <div class="truncate w-full text-center shrink-0" :class="dense ? 'text-[9px] leading-tight' : 'text-xs'">
-          {{ name }}
-        </div>
-        <div v-if="showValue && value !== undefined" class="font-semibold shrink-0" :class="dense ? 'text-[9px]' : 'text-sm'">
-          <CoinAmount :value="value" />
-        </div>
-        <div v-if="!dense && w && h" class="text-[10px] opacity-80 shrink-0">{{ w }}×{{ h }}</div>
+        <template v-if="!dense">
+          <div class="truncate w-full text-center shrink-0 text-xs">{{ name }}</div>
+          <div v-if="showValue && value !== undefined" class="font-semibold shrink-0 text-sm">
+            <CoinAmount :value="value" />
+          </div>
+          <div v-if="w && h" class="text-[10px] opacity-80 shrink-0">{{ w }}×{{ h }}</div>
+        </template>
       </div>
     </PopoverTrigger>
 
@@ -36,10 +33,8 @@
       <div v-if="value !== undefined" class="text-sm mb-1">
         Стоимость: <span class="text-amber-300 font-mono"><CoinAmount :value="value" /></span>
       </div>
-      <div v-if="defRange" class="text-xs text-slate-400 mb-1">
-        Каталог: <CoinAmount :value="defRange.value" /> · {{ defRange.w }}×{{ defRange.h }}
-      </div>
-      <div v-if="w && h" class="text-xs text-slate-400">Размер: {{ w }}×{{ h }}</div>
+      <div v-if="w && h" class="text-xs text-slate-400 mb-1">Размер: {{ w }}×{{ h }}</div>
+      <div v-if="defDesc" class="text-xs text-slate-400 leading-snug">{{ defDesc }}</div>
     </PopoverContent>
   </Popover>
 </template>
@@ -67,17 +62,22 @@ const props = withDefaults(
     showValue?: boolean;
     /** id предмета каталога (если нет — ищем иконку по имени) */
     defId?: string;
+    /** открывать подробности по клику левой кнопкой (иначе клики обрабатывает родитель) */
+    clickDetails?: boolean;
   }>(),
-  { dense: false, showValue: true },
+  { dense: false, showValue: true, clickDetails: true },
 );
 
 const open = ref(false);
 
-/** На тач-устройствах hover-поповер не открываем: тап занят другими действиями */
-const hoverable = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
+function onClick(): void {
+  if (!props.clickDetails) return;
+  open.value = !open.value;
+}
 
 const iconUrl = computed(() => itemIconUrl(props.defId, props.name));
-const defRange = computed(() => catalogDef(props.defId, props.name));
+const def = computed(() => catalogDef(props.defId, props.name));
+const defDesc = computed(() => def.value?.desc);
 const rarityColor = computed(() => RARITY_HEX[props.rarity]);
 
 const cardStyle = computed<CSSProperties>(() => {
@@ -96,7 +96,8 @@ const cardStyle = computed<CSSProperties>(() => {
     justifyContent: 'center',
     gap: '2px',
     borderRadius: props.dense ? '3px' : '8px',
-    padding: props.dense ? '2px' : '6px',
+    padding: props.dense ? '0' : '6px',
+    cursor: props.clickDetails ? 'pointer' : undefined,
   };
 });
 </script>
@@ -109,7 +110,7 @@ const cardStyle = computed<CSSProperties>(() => {
   width: 100%;
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 64px;
+  max-height: 100%;
   object-fit: contain;
   image-rendering: auto;
   pointer-events: none;

@@ -29,11 +29,14 @@
 
       <div v-if="devError" class="mb-3 px-3 py-2 rounded bg-rose-950 text-rose-300 text-sm">{{ devError }}</div>
 
-      <form class="flex flex-col gap-3" @submit.prevent="devLogin">
-        <input v-model="devName" class="input-dark" placeholder="Имя" />
-        <input v-model="devEmail" type="email" required class="input-dark" placeholder="Email" />
-        <button type="submit" :disabled="busy" class="btn-primary w-full">Войти (dev)</button>
-      </form>
+      <button
+        type="button"
+        :disabled="busy"
+        class="btn-primary w-full"
+        @click="devLogin"
+      >
+        Войти (dev)
+      </button>
 
       <p class="text-xs text-slate-500 mt-5 text-center">
         Новичкам выдаётся набор предметов на ~300 000 и 250 000 наличными
@@ -52,8 +55,6 @@ import type { Profile } from '@auctioneer/shared';
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
-const devName = ref('');
-const devEmail = ref('');
 const busy = ref(false);
 const oauthError = ref(false);
 const devError = ref('');
@@ -81,13 +82,22 @@ function googleLogin(): void {
   window.location.href = '/api/auth/google';
 }
 
+function randomId(): string {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function devLogin(): Promise<void> {
   busy.value = true;
   devError.value = '';
   try {
+    const id = randomId();
+    const email = 'dev-' + id + '@example.com';
+    const name = 'Dev ' + id;
     const resp = await post<{ token: string; profile: Profile }>('/api/auth/dev-login', {
-      email: devEmail.value,
-      name: devName.value,
+      email,
+      name,
     });
     auth.setToken(resp.token);
     auth.user = resp.profile;

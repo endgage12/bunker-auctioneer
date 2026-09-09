@@ -373,8 +373,8 @@ export function getPublicProfile(userId: string): PublicProfile | null {
   };
 }
 
-/** Таблица лидеров: топ игроков по «счёту» (наличные + номинал инвентаря) */
-export function getLeaderboard(limit: number, selfId: string): LeaderboardResponse {
+/** Таблица лидеров: топ игроков по «счёту» (наличные + номинал инвентаря), постранично */
+export function getLeaderboard(page: number, pageSize: number, selfId: string): LeaderboardResponse {
   const rows = db
     .prepare(
       'SELECT u.id, u.name, u.avatar, u.cash, u.games_won AS gamesWon, ' +
@@ -393,9 +393,17 @@ export function getLeaderboard(limit: number, selfId: string): LeaderboardRespon
     netWorth: Number(r.cash) + Number(r.invValue),
     gamesWon: Number(r.gamesWon ?? 0),
   }));
+  const size = Math.max(1, Math.min(200, Math.floor(pageSize) || 30));
+  const totalPages = Math.max(1, Math.ceil(all.length / size));
+  const p = Math.min(Math.max(1, Math.floor(page) || 1), totalPages);
+  const start = (p - 1) * size;
   return {
-    entries: all.slice(0, Math.max(1, Math.floor(limit))),
+    entries: all.slice(start, start + size),
     me: selfId ? all.find((e) => e.id === selfId) ?? null : null,
+    total: all.length,
+    page: p,
+    pageSize: size,
+    totalPages,
   };
 }
 

@@ -42,11 +42,12 @@ export function createRestRouter(): Router {
 
   // ---------- таблица лидеров ----------
 
-  // топ игроков по «счёту» (наличные + номинал инвентаря); me — место текущего игрока
+  // топ игроков по «счёту» (наличные + номинал инвентаря); me — место текущего игрока.
+  // Пагинация: page (с 1), pageSize (по умолчанию 30).
   r.get('/api/leaderboard', authRequired, (req, res) => {
     const userId = (req as AuthRequest).userId ?? '';
     const q = req.query as Record<string, string | undefined>;
-    res.json(db.getLeaderboard(Number(q.limit ?? 50), userId));
+    res.json(db.getLeaderboard(Number(q.page ?? 1), Number(q.pageSize ?? 30), userId));
   });
 
   // история матчей игрока (вложения и разница по каждой партии)

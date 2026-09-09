@@ -290,10 +290,15 @@ export interface LeaderboardEntry {
   gamesWon: number;
 }
 
-/** Ответ таблицы лидеров: топ списка + место текущего игрока */
+/** Ответ таблицы лидеров: страница топа + место текущего игрока */
 export interface LeaderboardResponse {
   entries: LeaderboardEntry[];
   me: LeaderboardEntry | null;
+  /** всего игроков в таблице */
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 /** Публичная страница профиля игрока (видна любому авторизованному) */

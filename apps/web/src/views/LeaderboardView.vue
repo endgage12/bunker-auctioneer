@@ -11,7 +11,7 @@
           Топ игроков по состоянию. Место обновляется при каждом открытии страницы.
         </p>
 
-        <div v-if="loading" class="text-sm text-slate-400 py-6 text-center">Загрузка…</div>
+        <div v-if="loading && entries.length === 0" class="text-sm text-slate-400 py-6 text-center">Загрузка…</div>
         <div v-else-if="error" class="text-sm text-rose-300 py-6 text-center">{{ error }}</div>
         <div v-else-if="entries.length === 0" class="text-sm text-slate-500 py-6 text-center">
           Пока в списке пусто — сыграйте первую партию!
@@ -57,6 +57,18 @@
           </div>
         </div>
 
+        <!-- пагинация -->
+        <div
+          v-if="totalPages > 1"
+          class="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-800"
+        >
+          <button class="btn-small" :disabled="page <= 1 || loading" @click="prevPage">← Назад</button>
+          <span class="text-xs text-slate-400">
+            Страница {{ page }} из {{ totalPages }} · игроков {{ total }}
+          </span>
+          <button class="btn-small" :disabled="page >= totalPages || loading" @click="nextPage">Вперёд →</button>
+        </div>
+
         <!-- моё место вне топа -->
         <div
           v-if="me && !shownIds.has(me.id)"
@@ -91,12 +103,44 @@ import { get } from '../lib/api';
 import TopNav from '../components/TopNav.vue';
 import CoinAmount from '../components/CoinAmount.vue';
 
+const PAGE_SIZE = 30;
+
 const entries = ref<LeaderboardEntry[]>([]);
 const me = ref<LeaderboardEntry | null>(null);
+const page = ref(1);
+const total = ref(0);
+const totalPages = ref(1);
 const loading = ref(true);
 const error = ref('');
 
 const shownIds = computed(() => new Set(entries.value.map((e) => e.id)));
+
+async function load(p: number): Promise<void> {
+  loading.value = true;
+  error.value = '';
+  try {
+    const data = await get<LeaderboardResponse>(
+      '/api/leaderboard?page=' + p + '&pageSize=' + PAGE_SIZE,
+    );
+    entries.value = data.entries;
+    me.value = data.me;
+    page.value = data.page;
+    total.value = data.total;
+    totalPages.value = data.totalPages;
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Не удалось загрузить таблицу';
+  } finally {
+    loading.value = false;
+  }
+}
+
+function prevPage(): void {
+  if (page.value > 1) void load(page.value - 1);
+}
+
+function nextPage(): void {
+  if (page.value < totalPages.value) void load(page.value + 1);
+}
 
 function rankLabel(rank: number): string {
   if (rank === 1) return '🥇';
@@ -112,16 +156,8 @@ function rankClass(rank: number): string {
   return 'text-slate-500';
 }
 
-onMounted(async () => {
-  try {
-    const data = await get<LeaderboardResponse>('/api/leaderboard?limit=50');
-    entries.value = data.entries;
-    me.value = data.me;
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Не удалось загрузить таблицу';
-  } finally {
-    loading.value = false;
-  }
+onMounted(() => {
+  void load(1);
 });
 </script>
 

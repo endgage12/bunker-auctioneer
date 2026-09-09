@@ -16,7 +16,16 @@ export interface AdminBank {
   balance: number;
   inventory: InventoryRow[];
   inventoryValue: number;
+}
+
+/** Страница журнала операций банка (пагинация) */
+export interface BankTxPage {
   transactions: BankTx[];
+  /** всего записей в журнале */
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export const BANK_TX_LABELS: Record<string, string> = {

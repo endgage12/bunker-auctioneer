@@ -69,31 +69,56 @@
       <!-- История операций -->
       <div class="panel p-5 mt-6">
         <h2 class="font-semibold mb-3">История операций банка</h2>
-        <div v-if="bank.transactions.length === 0" class="text-sm text-slate-500">Операций пока нет</div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-xs text-slate-500">
-                <th class="py-2 pr-4">Время</th>
-                <th class="py-2 pr-4">Операция</th>
-                <th class="py-2 pr-4">Сторона</th>
-                <th class="py-2 pr-4 text-right">Сумма</th>
-                <th class="py-2 text-right">Баланс после</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="t in bank.transactions" :key="t.id" class="border-t border-slate-800">
-                <td class="py-1.5 pr-4 text-xs text-slate-400">{{ timeOf(t.at) }}</td>
-                <td class="py-1.5 pr-4">{{ txLabel(t.type) }}</td>
-                <td class="py-1.5 pr-4 text-slate-400">{{ t.partyName ?? '—' }}</td>
-                <td class="py-1.5 pr-4 text-right font-mono" :class="t.amount >= 0 ? 'text-emerald-300' : 'text-rose-300'">
-                  <CoinAmount :value="t.amount" signed />
-                </td>
-                <td class="py-1.5 text-right font-mono text-slate-300"><CoinAmount :value="t.balanceAfter" /></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <div v-if="!txPage" class="text-sm text-slate-500">Загрузка…</div>
+        <div v-else-if="txPage.transactions.length === 0" class="text-sm text-slate-500">Операций пока нет</div>
+        <template v-else>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-xs text-slate-500">
+                  <th class="py-2 pr-4">Время</th>
+                  <th class="py-2 pr-4">Операция</th>
+                  <th class="py-2 pr-4">Сторона</th>
+                  <th class="py-2 pr-4 text-right">Сумма</th>
+                  <th class="py-2 text-right">Баланс после</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="t in txPage.transactions" :key="t.id" class="border-t border-slate-800">
+                  <td class="py-1.5 pr-4 text-xs text-slate-400">{{ timeOf(t.at) }}</td>
+                  <td class="py-1.5 pr-4">{{ txLabel(t.type) }}</td>
+                  <td class="py-1.5 pr-4 text-slate-400">{{ t.partyName ?? '—' }}</td>
+                  <td class="py-1.5 pr-4 text-right font-mono" :class="t.amount >= 0 ? 'text-emerald-300' : 'text-rose-300'">
+                    <CoinAmount :value="t.amount" signed />
+                  </td>
+                  <td class="py-1.5 text-right font-mono text-slate-300"><CoinAmount :value="t.balanceAfter" /></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
+            <span class="text-xs text-slate-400">
+              Записи {{ (txPage.page - 1) * txPage.pageSize + 1 }}–{{ Math.min(txPage.page * txPage.pageSize, txPage.total) }} из {{ txPage.total }}
+            </span>
+            <div class="flex items-center gap-2">
+              <button
+                class="btn-small disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="txPage.page <= 1"
+                @click="goPage(txPage.page - 1)"
+              >
+                ← Назад
+              </button>
+              <span class="text-xs text-slate-400 whitespace-nowrap">Страница {{ txPage.page }} из {{ txPage.totalPages }}</span>
+              <button
+                class="btn-small disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="txPage.page >= txPage.totalPages"
+                @click="goPage(txPage.page + 1)"
+              >
+                Вперёд →
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
     <div v-else class="p-12 text-center text-slate-400">Загрузка…</div>
@@ -104,7 +129,7 @@
 import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { BANK_TX_LABELS } from '@auctioneer/shared';
-import type { AdminBank } from '@auctioneer/shared';
+import type { AdminBank, BankTxPage } from '@auctioneer/shared';
 import { get, post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
@@ -117,6 +142,7 @@ const game = useGameStore();
 const router = useRouter();
 
 const bank = ref<AdminBank | null>(null);
+const txPage = ref<BankTxPage | null>(null);
 const depositAmount = ref(0);
 const transferEmail = ref('');
 const transferAmount = ref(0);
@@ -131,14 +157,26 @@ onMounted(async () => {
       return;
     }
     bank.value = await get<AdminBank>('/api/admin/bank');
+    await fetchTxPage(1);
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
     router.replace('/');
   }
 });
 
-async function refresh(): Promise<void> {
+/** Количество записей истории на странице */
+const TX_PAGE_SIZE = 30;
+
+async function refreshBank(): Promise<void> {
   bank.value = await get<AdminBank>('/api/admin/bank');
+}
+
+async function fetchTxPage(page: number): Promise<void> {
+  txPage.value = await get<BankTxPage>('/api/admin/bank/transactions?page=' + page + '&pageSize=' + TX_PAGE_SIZE);
+}
+
+function goPage(page: number): void {
+  void fetchTxPage(page);
 }
 
 async function doDeposit(): Promise<void> {
@@ -146,7 +184,8 @@ async function doDeposit(): Promise<void> {
     await post('/api/admin/bank/deposit', { amount: depositAmount.value });
     game.pushToast('Банк пополнен');
     depositAmount.value = 0;
-    await refresh();
+    await refreshBank();
+    await fetchTxPage(1);
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }
@@ -157,7 +196,8 @@ async function doTransfer(): Promise<void> {
     await post('/api/admin/bank/transfer', { email: transferEmail.value, amount: transferAmount.value });
     game.pushToast('Выплата выполнена');
     transferAmount.value = 0;
-    await refresh();
+    await refreshBank();
+    await fetchTxPage(1);
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }
@@ -168,7 +208,7 @@ async function listHouseItem(itemId: string): Promise<void> {
     await post('/api/admin/market/list', { itemId, price: housePrices[itemId] });
     game.pushToast('Предмет дома выставлен на барахолку');
     delete housePrices[itemId];
-    await refresh();
+    await refreshBank();
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }

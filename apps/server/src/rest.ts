@@ -310,6 +310,15 @@ export function createRestRouter(): Router {
     res.json(db.getAdminBank());
   });
 
+  r.get('/api/admin/bank/transactions', authRequired, (req, res) => {
+    if (!isAdminReq(req)) {
+      res.status(403).json({ error: 'Нужны права администратора' });
+      return;
+    }
+    const q = req.query as Record<string, string | undefined>;
+    res.json(db.getBankTransactions(Number(q.page ?? 1), Number(q.pageSize ?? 30)));
+  });
+
   r.post('/api/admin/bank/deposit', authRequired, (req, res) => {
     if (!isAdminReq(req)) {
       res.status(403).json({ error: 'Нужны права администратора' });

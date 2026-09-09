@@ -9,6 +9,7 @@ import { CARD_DEFS, RARITY_LABEL, RARITY_ORDER, WHEEL_TICKET_DEF_ID, WHEEL_TICKE
 import type {
   AdminBank,
   BankTx,
+  BankTxPage,
   GameDetail,
   HideoutState,
   InventoryRow,
@@ -674,13 +675,26 @@ function ensureHouse(): void {
   ).run(crypto.randomUUID(), Date.now(), 'deposit', start, start, 'Начальный капитал банка дома');
 }
 
-/** Баланс, собственность и журнал операций банка (для админ-панели) */
+/** Баланс и собственность банка (для админ-панели) */
 export function getAdminBank(): AdminBank {
   const house = getUserById(HOUSE_ID);
   const inventory = listInventory(HOUSE_ID);
+  return {
+    balance: house?.cash ?? 0,
+    inventory,
+    inventoryValue: inventory.reduce((s, i) => s + i.value, 0),
+  };
+}
+
+/** Журнал операций банка с пагинацией (страница 1 — самые свежие записи) */
+export function getBankTransactions(page: number, pageSize: number): BankTxPage {
+  const size = Math.max(1, Math.min(500, Math.floor(pageSize) || 30));
+  const total = Number((db.prepare('SELECT COUNT(*) AS c FROM bank_transactions').get() as Row | undefined)?.c ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / size));
+  const p = Math.min(Math.max(1, Math.floor(page) || 1), totalPages);
   const rows = db.prepare(
-    'SELECT t.id, t.at, t.type, t.amount, t.balance_after, t.note, u.name AS party_name FROM bank_transactions t LEFT JOIN users u ON u.id = t.party_user_id ORDER BY t.at DESC, t.rowid DESC LIMIT 100',
-  ).all() as unknown as Row[];
+    'SELECT t.id, t.at, t.type, t.amount, t.balance_after, t.note, u.name AS party_name FROM bank_transactions t LEFT JOIN users u ON u.id = t.party_user_id ORDER BY t.at DESC, t.rowid DESC LIMIT ? OFFSET ?',
+  ).all(size, (p - 1) * size) as unknown as Row[];
   const transactions: BankTx[] = rows.map((r) => ({
     id: String(r.id),
     at: Number(r.at),
@@ -690,12 +704,7 @@ export function getAdminBank(): AdminBank {
     partyName: r.party_name == null ? null : String(r.party_name),
     note: r.note == null ? null : String(r.note),
   }));
-  return {
-    balance: house?.cash ?? 0,
-    inventory,
-    inventoryValue: inventory.reduce((s, i) => s + i.value, 0),
-    transactions,
-  };
+  return { transactions, total, page: p, pageSize: size, totalPages };
 }
 
 /** Админ: пополнить банк дома (печать средств) */

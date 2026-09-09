@@ -37,7 +37,7 @@
               Профиль
             </router-link>
             <router-link to="/market" class="nav-link" :class="{ 'nav-link-active': $route.name === 'market' }">
-              Аукцион (барахолка)
+              Аукцион
             </router-link>
             <router-link to="/inventory" class="nav-link" :class="{ 'nav-link-active': $route.name === 'inventory' }">
               Инвентарь
@@ -84,7 +84,7 @@
           Профиль
         </router-link>
         <router-link to="/market" class="nav-link" :class="{ 'nav-link-active': $route.name === 'market' }">
-          Аукцион (барахолка)
+          Аукцион
         </router-link>
         <router-link to="/inventory" class="nav-link" :class="{ 'nav-link-active': $route.name === 'inventory' }">
           Инвентарь

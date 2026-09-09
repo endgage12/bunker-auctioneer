@@ -177,6 +177,8 @@ POST /api/admin/market/list, POST /api/admin/items/grant (выдача пред�
 ## API (кратко)
 
 - REST: POST /api/auth/dev-login, GET /api/auth/google[/callback], GET /api/me, GET /api/rooms,
+  GET /api/profile/:id[/history] (профиль игрока и его история матчей: вложения и разница),
+  GET /api/game/:id (детализация матча: участники и предметы призового стола),
   GET /api/market, POST /api/market/list|buy|cancel, POST /api/items/sell (продажа торговцу);
 - Socket.IO (JWT в handshake.auth.token): room:create, room:join, room:start, game:place,
   game:remove, game:ready, game:bid, game:sync; сервер шлёт полный снимок состояния событием state.

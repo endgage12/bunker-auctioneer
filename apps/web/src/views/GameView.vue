@@ -11,15 +11,18 @@
           <button class="text-xs text-slate-400 underline mt-1" @click="copyCode">скопировать</button>
         </div>
         <PlayersPanel :game="game" :me-id="meId" />
-        <div v-if="isHost" class="mt-6">
-          <button class="btn-primary w-full" :disabled="game.players.length < 2" @click="startGame">
-            Начать игру
+        <div class="mt-6">
+          <button class="w-full" :class="iAmReady ? 'btn-ghost' : 'btn-primary'" @click="toggleReady">
+            {{ iAmReady ? 'Я не готов/а' : 'Я готов/а' }}
           </button>
-          <p v-if="game.players.length < 2" class="text-xs text-slate-500 text-center mt-2">
-            Нужно минимум 2 игрока — отправьте код друзьям
-          </p>
         </div>
-        <p v-else class="text-center text-slate-400 text-sm mt-6">Ожидание хоста…</p>
+        <p class="text-xs text-slate-500 text-center mt-3 leading-relaxed">
+          Партия начнётся автоматически, когда наберётся 4 игрока.
+          <template v-if="game.players.length >= 2">
+            Если все нажмут «Я готов/а» — стартуем раньше.
+          </template>
+          <template v-else>Нужно минимум 2 игрока — отправьте код друзьям.</template>
+        </p>
       </div>
     </div>
 
@@ -102,7 +105,7 @@ const code = computed(() => String(route.params.code ?? ''));
 
 const game = computed(() => gameStore.game);
 const meId = computed(() => auth.meId);
-const isHost = computed(() => game.value?.players.find((p) => p.id === meId.value)?.isHost ?? false);
+const iAmReady = computed(() => game.value?.players.find((p) => p.id === meId.value)?.ready ?? false);
 
 const boardTitle = computed(() =>
   game.value?.phase === 'betting' ? 'Игровой стол — ждём ставок' : 'Игровой стол',
@@ -138,6 +141,10 @@ function onBid(amount: number): void {
 
 function startGame(): void {
   gameStore.start();
+}
+
+function toggleReady(): void {
+  gameStore.setReady(!iAmReady.value);
 }
 
 function leave(): void {

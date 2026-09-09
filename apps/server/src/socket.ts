@@ -1,6 +1,6 @@
 // Socket.IO: комнаты, игровые действия, рассылка состояний
 import type { Server, Socket } from 'socket.io';
-import { C2S, S2C, MIN_PLAYERS } from '@auctioneer/shared';
+import { C2S, S2C, AUTO_START_PLAYERS, MIN_PLAYERS } from '@auctioneer/shared';
 import * as db from './db';
 import { canJoin, manager, waitingSnapshot } from './game/manager';
 import type { Room } from './game/manager';
@@ -103,6 +103,24 @@ function startGame(room: Room): void {
   broadcast(room);
 }
 
+/**
+ * Автостарт комнаты ожидания:
+ * — сразу, как только набралось AUTO_START_PLAYERS игроков;
+ * — раньше, если игроков меньше, но все (минимум MIN_PLAYERS) нажали «Я готов/а».
+ */
+function maybeAutoStart(room: Room): void {
+  if (room.state !== 'waiting') return;
+  if (room.game && !room.game.isFinished) return;
+  if (room.members.size >= AUTO_START_PLAYERS) {
+    startGame(room);
+    return;
+  }
+  if (room.members.size >= MIN_PLAYERS) {
+    const allReady = [...room.members.values()].every((m) => m.ready);
+    if (allReady) startGame(room);
+  }
+}
+
 export function attachSocket(io: Server): void {
   ioRef = io;
 
@@ -126,12 +144,13 @@ export function attachSocket(io: Server): void {
         ack?.({ error: 'Пользователь не найден' });
         return;
       }
-      const room = manager.createRoom({ id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash });
+      const room = manager.createRoom({ id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash, ready: false });
       socket.data.roomCode = room.code;
       socket.join(chan(room));
       room.onUpdate = () => broadcast(room);
       ack?.({ code: room.code });
       broadcast(room);
+      maybeAutoStart(room);
     });
 
     socket.on(C2S.joinRoom, (code: string, ack?: (resp: { code: string } | { error: string }) => void) => {
@@ -151,7 +170,7 @@ export function attachSocket(io: Server): void {
         return;
       }
       if (!room.members.has(uid)) {
-        room.members.set(uid, { id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash });
+        room.members.set(uid, { id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash, ready: false });
       }
       socket.data.roomCode = room.code;
       socket.join(chan(room));
@@ -159,6 +178,68 @@ export function attachSocket(io: Server): void {
       room.game?.markOnline(uid, true);
       ack?.({ code: room.code });
       broadcast(room);
+      maybeAutoStart(room);
+    });
+
+    socket.on(C2S.play, (ack?: (resp: { code: string } | { error: string }) => void) => {
+      const profile = db.getProfile(uid);
+      if (!profile) {
+        ack?.({ error: 'Пользователь не найден' });
+        return;
+      }
+      const current = findRoomOf(socket);
+      if (current?.game && !current.game.isFinished) {
+        ack?.({ error: 'Вы уже участвуете в партии — вернитесь в неё' });
+        return;
+      }
+      if (current) {
+        // уже в комнате ожидания — просто остаёмся в ней
+        if (current.state === 'waiting') {
+          ack?.({ code: current.code });
+          broadcast(current);
+          maybeAutoStart(current);
+          return;
+        }
+        // завершённая партия: выходим из старой комнаты перед подбором
+        socket.data.roomCode = undefined;
+        socket.leave(chan(current));
+        current.members.delete(uid);
+        if (current.members.size === 0) manager.removeRoom(current.code);
+        else if (current.hostId === uid) current.hostId = current.members.keys().next().value as string;
+        broadcast(current);
+      }
+      const target = manager.pickQuickRoom();
+      let room: Room;
+      if (target) {
+        const check = canJoin(target, uid);
+        if (!check.ok) {
+          ack?.({ error: check.error ?? 'Нельзя войти' });
+          return;
+        }
+        if (!target.members.has(uid)) {
+          target.members.set(uid, { id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash, ready: false });
+        }
+        room = target;
+      } else {
+        room = manager.createRoom({ id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash, ready: false });
+      }
+      socket.data.roomCode = room.code;
+      socket.join(chan(room));
+      room.onUpdate = () => broadcast(room);
+      room.game?.markOnline(uid, true);
+      ack?.({ code: room.code });
+      broadcast(room);
+      maybeAutoStart(room);
+    });
+
+    socket.on(C2S.ready, (payload: { ready?: boolean }) => {
+      const room = findRoomOf(socket);
+      if (!room || room.state !== 'waiting') return;
+      const member = room.members.get(uid);
+      if (!member) return;
+      member.ready = !!payload?.ready;
+      broadcast(room);
+      maybeAutoStart(room);
     });
 
     socket.on(C2S.start, () => {

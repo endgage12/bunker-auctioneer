@@ -8,12 +8,15 @@ import { generateSantaReward, INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_T
 import type {
   AdminBank,
   BankTx,
+  GameDetail,
   HideoutState,
   InventoryRow,
   ItemInstance,
   MarketHistoryEntry,
+  MatchHistoryEntry,
   MarketListing,
   Profile,
+  PublicProfile,
   Rarity,
   SantaBoxItem,
   SantaState,
@@ -80,7 +83,20 @@ const SCHEMA = [
   '  user_id TEXT NOT NULL,',
   '  start_cash INTEGER NOT NULL,',
   '  end_cash INTEGER NOT NULL,',
-  '  place INTEGER NOT NULL',
+  '  place INTEGER NOT NULL,',
+  '  invested INTEGER NOT NULL DEFAULT 0,',
+  '  profit INTEGER NOT NULL DEFAULT 0',
+  ');',
+  'CREATE TABLE IF NOT EXISTS game_items (',
+  '  game_id TEXT NOT NULL,',
+  '  item_id TEXT,',
+  '  def_id TEXT NOT NULL,',
+  '  name TEXT NOT NULL,',
+  '  rarity TEXT NOT NULL,',
+  '  value INTEGER NOT NULL,',
+  '  w INTEGER NOT NULL,',
+  '  h INTEGER NOT NULL,',
+  '  owner_id TEXT',
   ');',
   'CREATE TABLE IF NOT EXISTS market_listings (',
   '  id TEXT PRIMARY KEY,',
@@ -141,6 +157,8 @@ const SCHEMA = [
   '  counterpart TEXT',
   ');',
   'CREATE INDEX IF NOT EXISTS idx_items_user ON items(user_id);',
+  'CREATE INDEX IF NOT EXISTS idx_game_players_user ON game_players(user_id);',
+  'CREATE INDEX IF NOT EXISTS idx_game_items_game ON game_items(game_id);',
   'CREATE INDEX IF NOT EXISTS idx_market_history_user ON market_history(user_id);',
   'CREATE INDEX IF NOT EXISTS idx_santa_items_user ON santa_items(user_id);',
   'CREATE INDEX IF NOT EXISTS idx_santa_cycles_user ON santa_cycles(user_id);',
@@ -163,6 +181,13 @@ db.exec(SCHEMA);
   }
   if (!itemCols.some((c) => c.name === 'inv_y')) {
     db.exec('ALTER TABLE items ADD COLUMN inv_y INTEGER');
+  }
+  const gpCols = db.prepare("SELECT name FROM pragma_table_info('game_players')").all() as unknown as Row[];
+  if (!gpCols.some((c) => c.name === 'invested')) {
+    db.exec('ALTER TABLE game_players ADD COLUMN invested INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!gpCols.some((c) => c.name === 'profit')) {
+    db.exec('ALTER TABLE game_players ADD COLUMN profit INTEGER NOT NULL DEFAULT 0');
   }
 }
 
@@ -281,6 +306,88 @@ export function getProfile(userId: string): Profile | null {
     gamesPlayed: u.gamesPlayed,
     gamesWon: u.gamesWon,
     isAdmin: u.isAdmin,
+  };
+}
+
+/** Публичный профиль игрока для страницы /profile/:id */
+export function getPublicProfile(userId: string): PublicProfile | null {
+  const u = getUserById(userId);
+  if (!u || u.id === HOUSE_ID) return null;
+  const items = db
+    .prepare('SELECT COALESCE(SUM(value), 0) AS v, COUNT(*) AS c FROM items WHERE user_id = ?')
+    .get(userId) as Row | undefined;
+  const hideout = getHideout(userId);
+  const inventoryValue = Number(items?.v ?? 0);
+  return {
+    id: u.id,
+    name: u.name,
+    avatar: u.avatar ?? undefined,
+    isAdmin: u.isAdmin,
+    createdAt: u.createdAt,
+    gamesPlayed: u.gamesPlayed,
+    gamesWon: u.gamesWon,
+    itemsCount: Number(items?.c ?? 0),
+    inventoryValue,
+    completedSets: hideout.completedSets,
+    totalSets: hideout.totalSets,
+    netWorth: u.cash + inventoryValue,
+  };
+}
+
+/** История матчей игрока: вложения и разница (плюс/минус) по каждой партии */
+export function getMatchHistory(userId: string, limit = 50): MatchHistoryEntry[] {
+  const rows = db
+    .prepare(
+      'SELECT g.id AS game_id, g.code, g.finished_at, g.winner_id, gp.place, gp.invested, gp.profit, ' +
+        '(SELECT COUNT(*) FROM game_players gp2 WHERE gp2.game_id = g.id) AS players ' +
+        'FROM game_players gp JOIN games g ON g.id = gp.game_id ' +
+        'WHERE gp.user_id = ? ORDER BY g.finished_at DESC, g.rowid DESC LIMIT ?',
+    )
+    .all(userId, limit) as unknown as Row[];
+  return rows.map((r) => ({
+    gameId: String(r.game_id),
+    code: String(r.code),
+    finishedAt: Number(r.finished_at),
+    winnerId: String(r.winner_id ?? ''),
+    place: Number(r.place),
+    players: Number(r.players ?? 0),
+    invested: Number(r.invested ?? 0),
+    profit: Number(r.profit ?? 0),
+  }));
+}
+
+/** Детализация матча для истории: участники и предметы призового стола */
+export function getGameDetail(gameId: string): GameDetail | null {
+  const game = db.prepare('SELECT id, code, winner_id, finished_at FROM games WHERE id = ?').get(gameId) as Row | undefined;
+  if (!game) return null;
+  const playerRows = db
+    .prepare(
+      'SELECT u.id AS id, u.name AS name, gp.place AS place FROM game_players gp JOIN users u ON u.id = gp.user_id WHERE gp.game_id = ? ORDER BY gp.place ASC',
+    )
+    .all(gameId) as unknown as Row[];
+  const itemRows = db
+    .prepare('SELECT * FROM game_items WHERE game_id = ? ORDER BY value DESC, rowid ASC')
+    .all(gameId) as unknown as Row[];
+  return {
+    gameId: String(game.id),
+    code: String(game.code),
+    finishedAt: Number(game.finished_at),
+    winnerId: String(game.winner_id ?? ''),
+    players: playerRows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      place: Number(r.place),
+    })),
+    items: itemRows.map((r) => ({
+      itemId: r.item_id == null ? '' : String(r.item_id),
+      defId: String(r.def_id),
+      name: String(r.name),
+      rarity: String(r.rarity) as GameDetail['items'][number]['rarity'],
+      value: Number(r.value),
+      w: Number(r.w),
+      h: Number(r.h),
+      ownerId: r.owner_id == null ? undefined : String(r.owner_id),
+    })),
   };
 }
 
@@ -488,9 +595,25 @@ export function finalizeGame(report: FinalReport): void {
     for (const it of report.droppedItems) db.prepare('DELETE FROM items WHERE id = ?').run(it.id);
     db.prepare('INSERT INTO games (id, code, winner_id, finished_at) VALUES (?, ?, ?, ?)')
       .run(report.gameId, report.code, report.winnerId, now);
-    const insGP = db.prepare('INSERT INTO game_players (game_id, user_id, start_cash, end_cash, place) VALUES (?, ?, ?, ?, ?)');
+    const insGP = db.prepare(
+      'INSERT INTO game_players (game_id, user_id, start_cash, end_cash, place, invested, profit) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
     for (const s of report.standings) {
-      insGP.run(report.gameId, s.playerId, report.startCash[s.playerId] ?? 0, s.cash, s.place);
+      insGP.run(
+        report.gameId,
+        s.playerId,
+        report.startCash[s.playerId] ?? 0,
+        s.cash,
+        s.place,
+        report.invested[s.playerId] ?? 0,
+        report.profit[s.playerId] ?? 0,
+      );
+    }
+    const insGI = db.prepare(
+      'INSERT INTO game_items (game_id, item_id, def_id, name, rarity, value, w, h, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const it of report.prizeItems) {
+      insGI.run(report.gameId, it.id, it.defId, it.name, it.rarity, it.value, it.w, it.h, it.ownerId ?? null);
     }
     db.prepare('UPDATE users SET games_played = games_played + 1 WHERE id IN (SELECT user_id FROM game_players WHERE game_id = ?)').run(report.gameId);
     db.prepare('UPDATE users SET games_won = games_won + 1 WHERE id = ?').run(report.winnerId);

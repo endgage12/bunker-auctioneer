@@ -429,6 +429,54 @@ async function main() {
     log('PASS: убежище и сеты работают');
   }
 
+  async function checkHistory(st) {
+    log('Проверка истории матчей…');
+    for (let i = 0; i < N; i++) {
+      const u = users[i];
+      const h = await api('/api/profile/' + u.profile.id + '/history', {
+        headers: { Authorization: 'Bearer ' + u.token },
+      });
+      if (!Array.isArray(h) || h.length < 1) throw new Error('история пуста у ' + u.profile.name);
+      const row = h[0]; // последняя партия — первая в списке
+      if (row.code !== st.code) throw new Error('код комнаты в истории не совпал у ' + u.profile.name);
+      if (row.players !== N) throw new Error('число игроков в истории не совпало у ' + u.profile.name);
+      if (row.winnerId !== st.final.winnerId) throw new Error('победитель в истории не совпал у ' + u.profile.name);
+      const myStanding = st.final.standings.find((s) => s.playerId === u.profile.id);
+      if (!myStanding || row.place !== myStanding.place) throw new Error('место в истории не совпало у ' + u.profile.name);
+      // разница: итог − стартовые наличные − стартовый номинал инвентаря (профиль до партии)
+      const me = st.players.find((p) => p.id === u.profile.id);
+      const startInv = u.profile.inventory.reduce((s, it) => s + it.value, 0);
+      const expectedProfit = myStanding.total - me.startCash - startInv;
+      if (row.profit !== expectedProfit) {
+        throw new Error('разница в истории не совпала у ' + u.profile.name + ': ' + row.profit + ' вместо ' + expectedProfit);
+      }
+      if (!Number.isInteger(row.invested) || row.invested < 0) {
+        throw new Error('вложения некорректны у ' + u.profile.name + ': ' + row.invested);
+      }
+    }
+    log('  история у всех ' + N + ' игроков: вложения и разница записаны верно');
+
+    // детализация матча: предметы призового стола (модалка истории)
+    const firstRow = (await api('/api/profile/' + users[0].profile.id + '/history', {
+      headers: { Authorization: 'Bearer ' + users[0].token },
+    }))[0];
+    const detail = await api('/api/game/' + firstRow.gameId, {
+      headers: { Authorization: 'Bearer ' + users[0].token },
+    });
+    if (detail.winnerId !== st.final.winnerId) throw new Error('победитель в детализации не совпал');
+    if (detail.players.length !== N) throw new Error('участников в детализации: ' + detail.players.length);
+    if (!Array.isArray(detail.items) || detail.items.length === 0) throw new Error('в детализации матча нет предметов стола');
+    for (const it of detail.items) {
+      if (typeof it.name !== 'string' || typeof it.value !== 'number' || typeof it.rarity !== 'string') {
+        throw new Error('предмет стола в детализации некорректен: ' + JSON.stringify(it));
+      }
+    }
+    const owners = new Set(detail.items.map((i) => i.ownerId).filter((o) => o));
+    if (owners.size > 1) throw new Error('владельцев предметов больше одного: ' + [...owners].join(','));
+    log('  детализация матча: ' + detail.items.length + ' предметов стола, владельцы согласованы');
+    log('PASS: история матчей работает');
+  }
+
   async function finalize(st) {
     if (!st) {
       log('FAIL: таймаут — игра не завершилась за 5 минут');
@@ -458,6 +506,12 @@ async function main() {
         log('FAIL: gamesPlayed не увеличилось у ' + me.name);
         ok = false;
       }
+    }
+    try {
+      await checkHistory(st);
+    } catch (e) {
+      log('FAIL (история матчей): ' + e.message);
+      ok = false;
     }
     try {
       await checkMarket();

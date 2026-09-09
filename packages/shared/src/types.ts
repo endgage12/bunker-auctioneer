@@ -57,6 +57,8 @@ export interface PublicPlayer {
   /** текущая стоимость инвентаря (предметы не на столе) */
   inventoryValue: number;
   isHost: boolean;
+  /** в фазе ожидания: нажал ли игрок «Я готов/а» (актуально только до старта) */
+  ready: boolean;
 }
 
 export interface PublicCell {
@@ -212,6 +214,75 @@ export interface RoomInfo {
   hostName: string;
 }
 
+/** Одна партия в истории матчей игрока */
+export interface MatchHistoryEntry {
+  gameId: string;
+  /** код комнаты */
+  code: string;
+  /** время завершения партии, мс */
+  finishedAt: number;
+  winnerId: string;
+  /** занятое место */
+  place: number;
+  /** сколько игроков участвовало */
+  players: number;
+  /** сумма вложений в партию: вступительная ставка + оплата выигранных торгов */
+  invested: number;
+  /** разница состояния за партию: плюс — ушёл в плюс, минус — ушёл в минус */
+  profit: number;
+}
+
+/** Участник партии в детализации матча (история матчей) */
+export interface GameDetailPlayer {
+  id: string;
+  name: string;
+  place: number;
+}
+
+/** Предмет призового стола партии (история матчей) */
+export interface GamePrizeItem {
+  itemId: string;
+  defId: string;
+  name: string;
+  rarity: Rarity;
+  value: number;
+  w: number;
+  h: number;
+  /** кто получил предмет; undefined — сгорел (аукцион без продажи) */
+  ownerId?: string;
+}
+
+/** Детализация матча для модалки истории: участники и предметы стола */
+export interface GameDetail {
+  gameId: string;
+  code: string;
+  finishedAt: number;
+  winnerId: string;
+  players: GameDetailPlayer[];
+  items: GamePrizeItem[];
+}
+
+/** Публичная страница профиля игрока (видна любому авторизованному) */
+export interface PublicProfile {
+  id: string;
+  name: string;
+  avatar?: string;
+  isAdmin: boolean;
+  /** дата регистрации, мс */
+  createdAt: number;
+  gamesPlayed: number;
+  gamesWon: number;
+  /** всего предметов в собственности (включая занятые партией, барахолкой и витринами) */
+  itemsCount: number;
+  /** суммарный номинал всех предметов игрока */
+  inventoryValue: number;
+  /** собранные сеты / всего сетов */
+  completedSets: number;
+  totalSets: number;
+  /** наличные + номинал инвентаря */
+  netWorth: number;
+}
+
 // ---------- События Socket.IO ----------
 
 export const C2S = {
@@ -219,6 +290,10 @@ export const C2S = {
   joinRoom: 'room:join',
   leaveRoom: 'room:leave',
   start: 'room:start',
+  /** быстрый подбор: в ближайшую свободную комнату или создание новой */
+  play: 'room:play',
+  /** переключение «Я готов/а» в комнате ожидания */
+  ready: 'room:ready',
   ante: 'game:ante',
   bid: 'game:bid',
   sync: 'game:sync',

@@ -16,7 +16,14 @@
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-1.5">
-            <span class="text-sm truncate">{{ p.name }}</span>
+            <a
+              :href="'#/profile/' + p.id"
+              target="_blank"
+              rel="noopener"
+              class="text-sm truncate hover:text-amber-300 hover:underline"
+              :title="'Открыть профиль ' + p.name"
+              @click.stop
+            >{{ p.name }}</a>
             <span v-if="p.isHost" class="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">ХОСТ</span>
             <span v-if="!p.online" class="text-[9px] px-1 rounded bg-rose-500/20 text-rose-300">офлайн</span>
           </div>
@@ -56,6 +63,11 @@ function playerColor(id: string): string {
 
 function statusOf(p: PublicPlayer): { text: string; cls: string } {
   const g = props.game;
+  if (g.phase === 'waiting') {
+    return p.ready
+      ? { text: 'готов', cls: 'bg-emerald-500/20 text-emerald-300' }
+      : { text: '', cls: '' };
+  }
   if (g.phase === 'betting') {
     return p.ante > 0
       ? { text: 'поставил', cls: 'bg-emerald-500/20 text-emerald-300' }

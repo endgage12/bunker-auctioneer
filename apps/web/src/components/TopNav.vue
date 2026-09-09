@@ -28,6 +28,14 @@
             <router-link to="/" class="nav-link" :class="{ 'nav-link-active': $route.name === 'lobby' }">
               Лобби
             </router-link>
+            <router-link
+              v-if="profile"
+              :to="'/profile/' + profile.id"
+              class="nav-link"
+              :class="{ 'nav-link-active': $route.name === 'profile' }"
+            >
+              Профиль
+            </router-link>
             <router-link to="/market" class="nav-link" :class="{ 'nav-link-active': $route.name === 'market' }">
               Аукцион (барахолка)
             </router-link>
@@ -64,6 +72,14 @@
         <router-link to="/" class="nav-link" :class="{ 'nav-link-active': $route.name === 'lobby' }">
           Лобби
         </router-link>
+        <router-link
+          v-if="profile"
+          :to="'/profile/' + profile.id"
+          class="nav-link"
+          :class="{ 'nav-link-active': $route.name === 'profile' }"
+        >
+          Профиль
+        </router-link>
         <router-link to="/market" class="nav-link" :class="{ 'nav-link-active': $route.name === 'market' }">
           Аукцион (барахолка)
         </router-link>
@@ -94,9 +110,13 @@
 
       <!-- правая часть: никнейм и внутриигровой счёт -->
       <div v-if="profile" class="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
-        <span class="text-sm text-slate-300 truncate max-w-[7rem] min-[480px]:max-w-[10rem] lg:max-w-none">
+        <router-link
+          :to="'/profile/' + profile.id"
+          class="text-sm text-slate-300 hover:text-amber-300 truncate max-w-[7rem] min-[480px]:max-w-[10rem] lg:max-w-none transition"
+          :title="'Открыть профиль ' + profile.name"
+        >
           {{ profile.name }}
-        </span>
+        </router-link>
         <span class="font-mono text-amber-300 text-sm whitespace-nowrap">{{ fmt(profile.cash) }}</span>
       </div>
     </div>

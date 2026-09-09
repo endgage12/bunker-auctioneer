@@ -85,7 +85,10 @@ describe('аукцион', () => {
   });
 
   it('ничья в 5-м раунде -> 6-й раунд -> повторная ничья -> лот сгорает', () => {
-    const g = makeGame([seed('a', 100_000, []), seed('b', 100_000, [])]);
+    const reports: FinalReport[] = [];
+    const g = makeGame([seed('a', 100_000, []), seed('b', 100_000, [])], {
+      onFinished: (r) => reports.push(r),
+    });
     g.submitAnte('a', 10_000);
     g.submitAnte('b', 10_000);
     g.advance();
@@ -102,6 +105,13 @@ describe('аукцион', () => {
     const inv = g.debug().players.reduce((sum, p) => sum + p.inventory.length, 0);
     expect(inv).toBe(0);
     expect(g.debug().dropped.length).toBeGreaterThan(0);
+    // resolve -> финал партии (отчёт уходит здесь)
+    g.advance();
+    expect(g.isFinished).toBe(true);
+    // в отчёте сгоревшие предметы без владельца
+    expect(reports.length).toBe(1);
+    expect(reports[0].prizeItems.length).toBe(g.debug().placed.length);
+    expect(reports[0].prizeItems.every((it) => it.ownerId === undefined)).toBe(true);
   });
 });
 
@@ -157,5 +167,40 @@ describe('полная игра', () => {
       expect(rep.standings[i - 1].total).toBeGreaterThanOrEqual(rep.standings[i].total);
     }
     expect(rep.standings[0].playerId).toBe(rep.winnerId);
+  });
+});
+
+describe('отчёт о партии: вложения и разница', () => {
+  it('вложения = вступительная ставка + оплата торгов, разница = итог минус старт', () => {
+    const reports: FinalReport[] = [];
+    const g = makeGame(
+      [
+        seed('a', 100_000, [item({ id: 'a1', value: 30_000 })]),
+        seed('b', 100_000, [item({ id: 'b1', value: 25_000 })]),
+      ],
+      { rng: mulberry32(42), onFinished: (r) => reports.push(r) },
+    );
+    g.submitAnte('a', 10_000);
+    g.submitAnte('b', 10_000);
+    g.advance(); // лок ставок -> аукцион
+    g.advance(); // reveal -> bid
+    g.submitBid('a', 5_000); // 5 000 >= 2 × 2 000 — победа в 1-м раунде
+    g.submitBid('b', 2_000);
+    g.advance(); // bid -> resolve
+    expect(g.snapshot().auction?.result?.winnerId).toBe('a');
+    g.advance(); // resolve -> финал
+    expect(reports.length).toBe(1);
+    const rep = reports[0];
+    // вложения: победитель заплатил ставку + цену, проигравший — только ставку
+    expect(rep.invested['a']).toBe(15_000);
+    expect(rep.invested['b']).toBe(10_000);
+    // разница: b потерял ровно вступительную ставку, a получил приз за вычетом вложений
+    const placedTotal = itemsTotal(g.debug().placed.map((pl) => pl.it));
+    expect(rep.profit['a']).toBe(placedTotal - 15_000);
+    expect(rep.profit['b']).toBe(-10_000);
+    // предметы призового стола в отчёте — с владельцем-победителем
+    expect(rep.prizeItems.length).toBe(g.debug().placed.length);
+    expect(rep.prizeItems.length).toBeGreaterThan(0);
+    expect(rep.prizeItems.every((it) => it.ownerId === 'a')).toBe(true);
   });
 });

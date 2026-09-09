@@ -51,8 +51,12 @@ interface GPlayer {
   name: string;
   avatar?: string;
   startCash: number;
+  /** номинал инвентаря на старте партии (для расчёта разницы) */
+  startInventoryValue: number;
   cash: number;
   ante: number;
+  /** всего вложено денег: вступительная ставка + оплата выигранных торгов */
+  spent: number;
   online: boolean;
   passed: boolean;
   bid: number | null;
@@ -97,6 +101,12 @@ export interface FinalReport {
   moneyToBank: number;
   /** сумма вступительных ставок */
   antePot: number;
+  /** сумма вложений каждого игрока: вступительная ставка + оплата выигранных торгов */
+  invested: Record<string, number>;
+  /** разница состояния каждого игрока за партию: итог минус старт (наличные + инвентарь) */
+  profit: Record<string, number>;
+  /** предметы призового стола партии (для истории матчей) */
+  prizeItems: (ItemInstance & { ownerId?: string })[];
 }
 
 export interface GameOptions {
@@ -165,8 +175,10 @@ export class Game {
       name: p.name,
       avatar: p.avatar,
       startCash: p.cash,
+      startInventoryValue: itemsTotal(p.inventory),
       cash: p.cash,
       ante: 0,
+      spent: 0,
       online: true,
       passed: false,
       bid: null,
@@ -263,6 +275,7 @@ export class Game {
       if (ante <= 0) ante = Math.min(ANTE_MIN, p.cash);
       p.ante = ante;
       p.cash -= ante;
+      p.spent += ante;
       pot += ante;
     }
     this.pot = pot;
@@ -533,6 +546,7 @@ export class Game {
     const winner = this.getPlayer(winnerId);
     if (!winner) return;
     winner.cash -= price;
+    winner.spent += price;
     const totalValue = itemsTotal(this.placed.map((pl) => pl.it));
     // предметы остаются на столе (для финального экрана), но переходят победителю
     for (const pl of this.placed) winner.inventory.push(pl.it);
@@ -610,6 +624,15 @@ export class Game {
       droppedItems: this.dropped,
       moneyToBank: this.moneyToBank,
       antePot: this.pot,
+      invested: Object.fromEntries(this.players.map((p) => [p.id, p.spent])),
+      profit: Object.fromEntries(
+        this.players.map((p) => [p.id, p.cash + itemsTotal(p.inventory) - p.startCash - p.startInventoryValue]),
+      ),
+      prizeItems: this.placed.map((pl) => ({
+        ...pl.it,
+        // победитель аукциона получил предмет в инвентарь; сгоревшие — никому
+        ownerId: this.players.find((p) => p.inventory.some((i) => i.id === pl.it.id))?.id,
+      })),
     };
   }
 
@@ -628,6 +651,7 @@ export class Game {
       bidPlaced: p.bid !== null,
       inventoryValue: itemsTotal(p.inventory),
       isHost: p.id === this.hostId,
+      ready: false,
     }));
 
     const items: PublicItem[] = [];

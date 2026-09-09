@@ -28,6 +28,39 @@ export function createRestRouter(): Router {
     res.json(manager.listRooms());
   });
 
+  // ---------- профили игроков ----------
+
+  r.get('/api/profile/:id', authRequired, (req, res) => {
+    const userId = String(req.params.id ?? '');
+    const profile = userId ? db.getPublicProfile(userId) : null;
+    if (!profile) {
+      res.status(404).json({ error: 'Игрок не найден' });
+      return;
+    }
+    res.json(profile);
+  });
+
+  // история матчей игрока (вложения и разница по каждой партии)
+  r.get('/api/profile/:id/history', authRequired, (req, res) => {
+    const userId = String(req.params.id ?? '');
+    const profile = userId ? db.getPublicProfile(userId) : null;
+    if (!profile) {
+      res.status(404).json({ error: 'Игрок не найден' });
+      return;
+    }
+    res.json(db.getMatchHistory(userId));
+  });
+
+  // детализация матча: участники и предметы призового стола (модалка истории)
+  r.get('/api/game/:id', authRequired, (req, res) => {
+    const detail = db.getGameDetail(String(req.params.id ?? ''));
+    if (!detail) {
+      res.status(404).json({ error: 'Матч не найден' });
+      return;
+    }
+    res.json(detail);
+  });
+
   // ---------- барахолка и торговец ----------
 
   r.get('/api/market', authRequired, (req, res) => {

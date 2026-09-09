@@ -70,6 +70,13 @@ export const useGameStore = defineStore('game', {
     joinRoom(code: string): Promise<{ code: string } | { error: string }> {
       return this.emitAck(C2S.joinRoom, code);
     },
+    /** Быстрый подбор: ближайшая свободная комната или новая */
+    play(): Promise<{ code: string } | { error: string }> {
+      return this.emitAck(C2S.play);
+    },
+    setReady(ready: boolean): void {
+      this.socket?.emit(C2S.ready, { ready });
+    },
     start(): void {
       this.socket?.emit(C2S.start);
     },

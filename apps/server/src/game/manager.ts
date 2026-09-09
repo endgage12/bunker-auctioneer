@@ -9,6 +9,8 @@ export interface MemberInfo {
   name: string;
   avatar?: string;
   cash: number;
+  /** нажал ли «Я готов/а» в комнате ожидания */
+  ready: boolean;
 }
 
 export class Room {
@@ -45,6 +47,28 @@ export class Manager {
 
   getRoom(code: string): Room | undefined {
     return this.rooms.get(code.toUpperCase());
+  }
+
+  /** Комната ожидания, в которой уже состоит игрок (для быстрого подбора) */
+  findWaitingRoomOf(userId: string): Room | undefined {
+    for (const room of this.rooms.values()) {
+      if (room.state === 'waiting' && room.members.has(userId)) return room;
+    }
+    return undefined;
+  }
+
+  /**
+   * Ближайшая к старту свободная комната для быстрого подбора:
+   * комната ожидания с наибольшим числом игроков (при равенстве — созданная раньше).
+   */
+  pickQuickRoom(): Room | undefined {
+    let best: Room | undefined;
+    for (const room of this.rooms.values()) {
+      if (room.state !== 'waiting') continue;
+      if (room.members.size >= MAX_PLAYERS) continue;
+      if (!best || room.members.size > best.members.size) best = room;
+    }
+    return best;
   }
 
   listRooms(): RoomInfo[] {
@@ -108,6 +132,7 @@ export function waitingSnapshot(room: Room): PublicGame {
       bidPlaced: false,
       inventoryValue: 0,
       isHost: m.id === room.hostId,
+      ready: m.ready,
     })),
     board: { w: GRID_W, h: GRID_H, cells: [], lots: [] },
     items: [],

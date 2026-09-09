@@ -13,6 +13,9 @@ export const INV_ROWS = 24;
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 6;
 
+/** Быстрый подбор: партия стартует автоматически, как только в комнате наберётся столько игроков */
+export const AUTO_START_PLAYERS = 4;
+
 /** Вступительная ставка: минимум и максимум */
 export const ANTE_MIN = 10_000;
 export const ANTE_MAX = 100_000;

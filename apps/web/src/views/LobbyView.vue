@@ -1,49 +1,40 @@
 <template>
   <div class="min-h-screen">
     <TopNav />
-    <div class="max-w-5xl mx-auto p-6">
-      <div v-if="profile" class="text-sm text-slate-400 mb-6">
+    <div class="max-w-2xl mx-auto p-6">
+      <div v-if="profile" class="text-sm text-slate-400 mb-6 text-center">
         Сыграно игр: {{ profile.gamesPlayed }} · Побед: {{ profile.gamesWon }}
+        · <router-link :to="'/profile/' + profile.id" class="text-amber-300 hover:underline">профиль</router-link>
         · <router-link to="/market" class="text-amber-300 hover:underline">барахолка</router-link>
         · <router-link to="/inventory" class="text-amber-300 hover:underline">инвентарь</router-link>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="panel p-5">
-          <h2 class="font-semibold mb-4">Новая игра</h2>
-          <button class="btn-primary w-full" :disabled="busy" @click="createRoom">Создать комнату</button>
-          <div class="flex items-center gap-3 my-4">
-            <div class="h-px bg-slate-700 flex-1"></div>
-            <span class="text-xs text-slate-500">или</span>
-            <div class="h-px bg-slate-700 flex-1"></div>
-          </div>
-          <form class="flex gap-2" @submit.prevent="joinRoom">
-            <input v-model="code" class="input-dark font-mono uppercase tracking-widest" maxlength="4" placeholder="КОД" />
-            <button type="submit" class="btn-ghost shrink-0" :disabled="busy || code.length !== 4">Войти</button>
-          </form>
-          <p v-if="error" class="text-rose-400 text-sm mt-3">{{ error }}</p>
+      <div class="panel p-8">
+        <h1 class="text-center font-bold text-2xl mb-1">Раз, два, продано!</h1>
+        <p class="text-center text-sm text-slate-400 mb-8">Аукцион со слепыми ставками</p>
+
+        <button class="btn-primary w-full text-lg py-3" :disabled="busy" @click="play">
+          {{ busy ? 'Подбор…' : 'Играть' }}
+        </button>
+
+        <p v-if="error" class="text-rose-400 text-sm mt-3 text-center">{{ error }}</p>
+
+        <div class="flex items-center gap-3 my-6">
+          <div class="h-px bg-slate-700 flex-1"></div>
+          <span class="text-xs text-slate-500">или войти по коду</span>
+          <div class="h-px bg-slate-700 flex-1"></div>
         </div>
 
-        <div class="panel p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="font-semibold">Открытые комнаты</h2>
-            <button class="text-xs text-slate-400 hover:text-white" @click="refreshRooms">обновить</button>
-          </div>
-          <div v-if="rooms.length === 0" class="text-sm text-slate-500">Сейчас нет открытых комнат</div>
-          <div v-else class="flex flex-col gap-2">
-            <button
-              v-for="room in rooms"
-              :key="room.code"
-              class="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-left"
-              @click="joinCode(room.code)"
-            >
-              <span class="font-mono text-amber-300 tracking-widest">{{ room.code }}</span>
-              <span class="text-xs text-slate-400">{{ room.players }}/6 · хост: {{ room.hostName }}</span>
-            </button>
-          </div>
-        </div>
+        <form class="flex gap-2 justify-center" @submit.prevent="joinRoom">
+          <input v-model="code" class="input-dark font-mono uppercase tracking-widest text-center w-40" maxlength="4" placeholder="КОД" />
+          <button type="submit" class="btn-ghost shrink-0" :disabled="busy || code.length !== 4">Войти</button>
+        </form>
+
+        <p class="text-xs text-slate-500 text-center mt-6 leading-relaxed">
+          Игра начнётся автоматически, как только наберётся 4 игрока.<br />
+          Если игроков меньше, но каждый нажал «Я готов/а» — партия начнётся и без полного состава.
+        </p>
       </div>
-
     </div>
   </div>
 </template>
@@ -51,8 +42,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import type { Profile, RoomInfo } from '@auctioneer/shared';
-import { get } from '../lib/api';
+import type { Profile } from '@auctioneer/shared';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
@@ -62,7 +52,6 @@ const game = useGameStore();
 const router = useRouter();
 
 const profile = ref<Profile | null>(null);
-const rooms = ref<RoomInfo[]>([]);
 const code = ref('');
 const busy = ref(false);
 const error = ref('');
@@ -70,22 +59,13 @@ const error = ref('');
 onMounted(async () => {
   profile.value = await auth.fetchMe();
   game.attach();
-  void refreshRooms();
 });
 
-async function refreshRooms(): Promise<void> {
-  try {
-    rooms.value = await get<RoomInfo[]>('/api/rooms');
-  } catch {
-    /* ignore */
-  }
-}
-
-async function createRoom(): Promise<void> {
+async function play(): Promise<void> {
   busy.value = true;
   error.value = '';
   try {
-    const resp = await game.createRoom();
+    const resp = await game.play();
     if ('error' in resp) {
       error.value = resp.error;
       return;

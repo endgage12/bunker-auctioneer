@@ -1,72 +1,82 @@
 <template>
   <div class="panel flex flex-col min-h-0 h-full">
     <div class="flex items-center justify-between mb-2 shrink-0">
-      <h3 class="text-sm font-semibold text-slate-200">{{ title }}</h3>
-      <span class="text-xs text-slate-500">{{ subtitle }}</span>
+      <h3 class="text-sm font-semibold text-slate-200 truncate">{{ title }}</h3>
+      <span class="text-xs text-slate-500 hidden sm:block ml-2 shrink-0">{{ subtitle }}</span>
     </div>
-    <div class="flex-1 min-h-0 flex items-start justify-center overflow-auto">
-      <div
-        class="board-grid"
-        :style="gridStyle"
-        @mouseleave="hoverIdx = -1"
-      >
-        <!-- ячейки 64x64 -->
+    <div
+      ref="viewport"
+      class="flex items-center justify-center overflow-hidden"
+      :class="fit === 'width' ? 'h-auto' : 'flex-1 min-h-0'"
+    >
+      <div class="relative shrink-0" :style="sizerStyle">
         <div
-          v-for="(cell, idx) in board.cells"
-          :key="'c' + idx"
-          class="board-cell"
-          :class="cellClass(cell, idx)"
-          @click="onCellClick(idx)"
-          @mouseenter="hoverIdx = idx"
-        ></div>
-
-        <!-- раскрытые предметы -->
-        <div
-          v-for="it in revealedItems"
-          :key="it.id"
-          class="board-item flip-in rounded overflow-hidden"
-          :class="clickableItem(it) ? 'cursor-pointer' : ''"
-          :style="itemStyle(it)"
-          :title="tooltip(it)"
-          @click="onItemClick(it)"
+          class="board-grid"
+          :style="gridStyle"
+          @mouseleave="hoverIdx = -1"
         >
-          <ItemCard :name="it.name ?? ''" :rarity="it.rarity ?? 'white'" :value="it.value" dense />
+          <!-- ячейки 64x64 -->
+          <div
+            v-for="(cell, idx) in board.cells"
+            :key="'c' + idx"
+            class="board-cell"
+            :class="cellClass(cell, idx)"
+            @click="onCellClick(idx)"
+            @mouseenter="hoverIdx = idx"
+          ></div>
+
+          <!-- раскрытые предметы -->
+          <div
+            v-for="it in revealedItems"
+            :key="it.id"
+            class="board-item flip-in rounded overflow-hidden"
+            :class="clickableItem(it) ? 'cursor-pointer' : ''"
+            :style="itemStyle(it)"
+            :title="tooltip(it)"
+            @click="onItemClick(it)"
+          >
+            <ItemCard :name="it.name ?? ''" :rarity="it.rarity ?? 'white'" :value="it.value" dense />
+          </div>
+
+          <!-- подсветка открытого лота (граница компенсирует масштаб: всегда 2px на экране) -->
+          <div
+            v-if="openLot"
+            class="absolute pointer-events-none rounded-md lot-open"
+            :style="lotRectStyle(openLot)"
+          ></div>
+
+          <!-- превью размещения -->
+          <div
+            v-if="preview"
+            class="absolute pointer-events-none rounded-md border-2"
+            :class="preview.ok ? 'border-emerald-400 bg-emerald-400/20' : 'border-rose-500 bg-rose-500/20'"
+            :style="previewRect(preview)"
+          ></div>
         </div>
 
-        <!-- подсветка открытого лота -->
-        <div
-          v-if="openLot"
-          class="absolute pointer-events-none rounded-md lot-open border-2 border-amber-400"
-          :style="lotRectStyle(openLot)"
-        ></div>
-
-        <!-- метки лотов -->
+        <!-- метки лотов (вне масштабируемой сетки — всегда читаемые) -->
         <div
           v-for="lot in lotChips"
           :key="'lot' + (lot.ownerId ? 'c' : 'p') + lot.index"
-          class="absolute pointer-events-none text-[10px] px-1.5 py-0.5 rounded -translate-x-1/2 -translate-y-1/2 border"
-          :class="lot.open
-            ? 'bg-amber-500/90 text-slate-950 border-amber-300 font-bold'
-            : 'bg-slate-900/90 border-slate-600 text-slate-300'"
+          class="board-chip-anchor"
           :style="chipStyle(lot)"
         >
-          {{ chipLabel(lot) }}
+          <span
+            class="board-chip text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap"
+            :class="lot.open
+              ? 'bg-amber-500/90 text-slate-950 border-amber-300 font-bold'
+              : 'bg-slate-900/90 border-slate-600 text-slate-300'"
+          >
+            {{ chipLabel(lot) }}
+          </span>
         </div>
-
-        <!-- превью размещения -->
-        <div
-          v-if="preview"
-          class="absolute pointer-events-none rounded-md border-2"
-          :class="preview.ok ? 'border-emerald-400 bg-emerald-400/20' : 'border-rose-500 bg-rose-500/20'"
-          :style="previewRect(preview)"
-        ></div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { fmt } from '@auctioneer/shared';
 import type { PublicBoard, PublicCell, PublicItem, PublicLot } from '@auctioneer/shared';
 import ItemCard from './ItemCard.vue';
@@ -75,16 +85,21 @@ const CELL = 64;
 const GAP = 2;
 const PAD = 2;
 
-const props = defineProps<{
-  board: PublicBoard;
-  items: PublicItem[];
-  players?: { id: string; name: string }[];
-  title: string;
-  subtitle?: string;
-  mode: 'place' | 'auction';
-  myId?: string;
-  selected?: { w: number; h: number } | null;
-}>();
+const props = withDefaults(
+  defineProps<{
+    board: PublicBoard;
+    items: PublicItem[];
+    players?: { id: string; name: string }[];
+    title: string;
+    subtitle?: string;
+    mode: 'place' | 'auction';
+    myId?: string;
+    selected?: { w: number; h: number } | null;
+    /** 'both' — вписать целиком в доступную область; 'width' — по ширине (страница скроллится) */
+    fit?: 'both' | 'width';
+  }>(),
+  { fit: 'both' },
+);
 
 const emit = defineEmits<{
   (e: 'cell-click', pos: { x: number; y: number }): void;
@@ -92,6 +107,39 @@ const emit = defineEmits<{
 }>();
 
 const hoverIdx = ref(-1);
+const viewport = ref<HTMLElement | null>(null);
+const fitScale = ref(1);
+let ro: ResizeObserver | null = null;
+
+const naturalW = computed(() => props.board.w * CELL + (props.board.w - 1) * GAP + PAD * 2);
+const naturalH = computed(() => props.board.h * CELL + (props.board.h - 1) * GAP + PAD * 2);
+
+function measure(): void {
+  const el = viewport.value;
+  if (!el) return;
+  const w = el.clientWidth;
+  const h = el.clientHeight;
+  if (w <= 0) return;
+  const s =
+    props.fit === 'width'
+      ? Math.min(1, w / naturalW.value)
+      : h <= 0
+        ? Math.min(1, w / naturalW.value)
+        : Math.min(1, w / naturalW.value, h / naturalH.value);
+  if (Math.abs(s - fitScale.value) > 0.0005) fitScale.value = s;
+}
+
+onMounted(() => {
+  measure();
+  if (typeof ResizeObserver !== 'undefined' && viewport.value) {
+    ro = new ResizeObserver(() => measure());
+    ro.observe(viewport.value);
+  }
+});
+onBeforeUnmount(() => {
+  ro?.disconnect();
+  ro = null;
+});
 
 const revealedItems = computed(() =>
   props.items.filter((i) => i.revealed && i.x !== undefined && i.y !== undefined),
@@ -126,6 +174,8 @@ function lotRectStyle(lot: PublicLot): Record<string, string> {
     top: (lot.y / h) * 100 + '%',
     width: (lot.w / w) * 100 + '%',
     height: (lot.h / h) * 100 + '%',
+    // толщина рамки не зависит от масштаба стола
+    border: 'calc(2px / var(--bs, 1)) solid #fbbf24',
   };
 }
 
@@ -144,8 +194,16 @@ const gridStyle = computed(() => ({
   gridTemplateColumns: 'repeat(' + props.board.w + ', ' + CELL + 'px)',
   gridAutoRows: CELL + 'px',
   gap: GAP + 'px',
-  width: (props.board.w * CELL + (props.board.w - 1) * GAP + PAD * 2) + 'px',
-  height: (props.board.h * CELL + (props.board.h - 1) * GAP + PAD * 2) + 'px',
+  width: naturalW.value + 'px',
+  height: naturalH.value + 'px',
+  transform: 'scale(' + fitScale.value + ')',
+  transformOrigin: 'top left',
+}));
+
+const sizerStyle = computed(() => ({
+  '--bs': String(fitScale.value),
+  width: Math.round(naturalW.value * fitScale.value) + 'px',
+  height: Math.round(naturalH.value * fitScale.value) + 'px',
 }));
 
 const preview = computed(() => {
@@ -206,12 +264,15 @@ function onItemClick(it: PublicItem): void {
 
 <style scoped>
 .board-grid {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   display: grid;
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 0.5rem;
   padding: 2px;
+  overflow: hidden;
 }
 .board-cell {
   width: 64px;
@@ -238,5 +299,16 @@ function onItemClick(it: PublicItem): void {
 .board-item {
   position: relative;
   z-index: 5;
+}
+.board-chip-anchor {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+}
+.board-chip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 </style>

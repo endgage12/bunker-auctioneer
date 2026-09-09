@@ -58,6 +58,8 @@
             <input
               v-model.number="bidAmount"
               type="number"
+              inputmode="decimal"
+              enterkeyhint="done"
               :min="0"
               :max="myPlayer.cash"
               class="input-dark font-mono"

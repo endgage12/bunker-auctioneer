@@ -9,6 +9,8 @@
         <input
           v-model.number="amount"
           type="number"
+          inputmode="decimal"
+          enterkeyhint="done"
           :min="ANTE_MIN"
           :max="Math.min(ANTE_MAX, myPlayer.cash)"
           class="input-dark font-mono"

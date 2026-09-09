@@ -1,10 +1,10 @@
 <template>
-  <div v-if="game" class="h-screen flex flex-col">
+  <div v-if="game" class="game-shell flex flex-col">
     <TopBar :game="game" @leave="leave" />
 
     <!-- Ожидание игроков -->
-    <div v-if="game.phase === 'waiting'" class="flex-1 flex items-center justify-center p-6 overflow-auto">
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-8 w-full max-w-lg">
+    <div v-if="game.phase === 'waiting'" class="flex-1 flex overflow-auto p-3 sm:p-6">
+      <div class="m-auto bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-8 w-full max-w-lg">
         <div class="text-center mb-6">
           <p class="text-sm text-slate-400">Код комнаты</p>
           <p class="text-4xl font-mono font-bold tracking-widest text-amber-400">{{ game.code }}</p>
@@ -26,11 +26,20 @@
       </div>
     </div>
 
-    <!-- Игра: три колонки -->
+    <!-- Итоги -->
+    <div v-else-if="game.phase === 'finished'" class="flex-1 overflow-auto p-3 sm:p-6">
+      <div class="min-h-full flex items-center justify-center">
+        <ResultModal :game="game" :me-id="meId" @leave="leave" @again="startGame" />
+      </div>
+    </div>
+
+    <!-- Игра: стол и действия -->
     <div
       v-else-if="game.phase === 'betting' || game.phase === 'auction'"
-      class="flex-1 flex min-h-0 gap-4 p-4"
+      class="flex-1 min-h-0"
     >
+      <!-- Десктоп: три колонки -->
+      <div class="hidden lg:flex h-full min-h-0 gap-4 p-4">
       <!-- Левая колонка: игроки -->
       <aside class="w-80 shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
         <PlayersPanel :game="game" :me-id="meId" />
@@ -72,9 +81,53 @@
       </aside>
     </div>
 
-    <!-- Итоги -->
-    <div v-else class="flex-1 flex items-center justify-center p-6 overflow-auto">
-      <ResultModal :game="game" :me-id="meId" @leave="leave" @again="startGame" />
+      <!-- Мобильная верстка: стол сверху, действия внизу -->
+      <div class="lg:hidden h-full min-h-0 flex flex-col">
+      <main class="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 p-2 sm:p-3">
+        <!-- статусная строка -->
+        <div class="panel py-1.5 px-3 text-xs shrink-0 flex items-center gap-x-3 gap-y-1 flex-wrap">
+          <span class="text-slate-400">Стол:</span>
+          <b class="text-amber-300 font-mono">{{ fmt(tableRevealedValue) }}</b>
+          <span v-if="game.phase === 'betting'" class="text-slate-600 ml-auto text-[11px]">
+            призы появятся после вступительных ставок
+          </span>
+          <span v-else class="text-slate-600 ml-auto text-[11px] sm:hidden">
+            нажмите на предмет — детали
+          </span>
+        </div>
+
+        <!-- игровой стол: по ширине экрана, страница скроллится -->
+        <div class="shrink-0">
+          <BoardView
+            :board="game.board"
+            :items="game.items"
+            :players="game.players"
+            :title="boardTitle"
+            :subtitle="boardSubtitle"
+            mode="auction"
+            fit="width"
+          />
+        </div>
+
+        <!-- игроки и журнал -->
+        <div class="shrink-0">
+          <PlayersPanel :game="game" :me-id="meId" compact />
+        </div>
+        <div class="shrink-0">
+          <LogPanel :log="game.log" collapsible />
+        </div>
+      </main>
+
+      <!-- нижняя панель действий -->
+      <footer
+        class="shrink-0 z-20 border-t border-slate-800 bg-slate-950/95 backdrop-blur px-2 sm:px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
+      >
+        <div class="max-h-[45dvh] overflow-y-auto overscroll-contain">
+          <AntePanel v-if="game.phase === 'betting'" :game="game" :me-id="meId" @ante="onAnte" />
+          <AuctionPanel v-if="game.phase === 'auction'" :game="game" :me-id="meId" @bid="onBid" />
+        </div>
+      </footer>
+      </div>
     </div>
   </div>
   <div v-else class="h-screen flex items-center justify-center text-slate-400">Подключение…</div>
@@ -107,14 +160,18 @@ const game = computed(() => gameStore.game);
 const meId = computed(() => auth.meId);
 const iAmReady = computed(() => game.value?.players.find((p) => p.id === meId.value)?.ready ?? false);
 
+const canHover =
+  typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
+
 const boardTitle = computed(() =>
   game.value?.phase === 'betting' ? 'Игровой стол — ждём ставок' : 'Игровой стол',
 );
-const boardSubtitle = computed(() =>
-  game.value?.phase === 'betting'
-    ? 'сделайте вступительную ставку справа'
-    : 'наведите курсор на раскрытый предмет для подсказки',
-);
+const boardSubtitle = computed(() => {
+  if (game.value?.phase === 'betting') return 'сделайте вступительную ставку на панели';
+  return canHover
+    ? 'наведите курсор на раскрытый предмет для подсказки'
+    : 'нажмите на раскрытый предмет для деталей';
+});
 
 // сумма стоимости всех раскрытых предметов на столе
 const tableRevealedValue = computed(() =>

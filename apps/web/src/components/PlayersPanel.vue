@@ -1,5 +1,46 @@
 <template>
-  <div class="panel">
+  <!-- Компактный вид для мобильной игры: горизонтальная лента игроков -->
+  <div v-if="compact" class="flex gap-1.5 overflow-x-auto pb-0.5 -mx-0.5 px-0.5">
+    <a
+      v-for="p in game.players"
+      :key="p.id"
+      :href="'#/profile/' + p.id"
+      target="_blank"
+      rel="noopener"
+      class="shrink-0 flex items-center gap-1.5 rounded-lg px-1.5 py-1 bg-slate-800/50"
+      :class="p.id === meId ? 'ring-1 ring-slate-500' : ''"
+      :title="'Открыть профиль ' + p.name"
+    >
+      <div
+        class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 text-slate-950"
+        :style="{ background: playerColor(p.id) }"
+      >
+        {{ p.name.charAt(0).toUpperCase() }}
+      </div>
+      <div class="min-w-0">
+        <div class="text-[11px] leading-tight truncate max-w-24">
+          {{ p.name }}
+          <span v-if="p.isHost" class="text-amber-300">★</span>
+        </div>
+        <div class="text-[10px] font-mono text-slate-400 leading-tight">
+          {{ fmt(p.cash) }}
+          <template v-if="p.ante > 0 && (game.phase === 'betting' || game.phase === 'auction')">
+            <span class="text-amber-200/80">· {{ fmt(p.ante) }}</span>
+          </template>
+        </div>
+      </div>
+      <span
+        v-if="statusOf(p).text"
+        class="text-[9px] px-1 py-0.5 rounded shrink-0"
+        :class="statusOf(p).cls"
+      >
+        {{ statusOf(p).text }}
+      </span>
+    </a>
+  </div>
+
+  <!-- Полный список -->
+  <div v-else class="panel">
     <h3 class="text-sm font-semibold mb-2">Игроки</h3>
     <div class="flex flex-col gap-1.5">
       <div
@@ -51,7 +92,9 @@
 import { fmt } from '@auctioneer/shared';
 import type { PublicGame, PublicPlayer } from '@auctioneer/shared';
 
-const props = defineProps<{ game: PublicGame; meId: string }>();
+const props = withDefaults(defineProps<{ game: PublicGame; meId: string; compact?: boolean }>(), {
+  compact: false,
+});
 
 const AVATAR_COLORS = ['#fbbf24', '#60a5fa', '#34d399', '#f472b6', '#a78bfa', '#f87171', '#38bdf8', '#fb923c'];
 

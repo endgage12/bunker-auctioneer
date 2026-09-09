@@ -73,41 +73,15 @@ body {
   }
 }
 
-/* Доска */
-.board-grid {
-  position: relative;
-  display: grid;
-  width: 100%;
-  max-width: min(100%, 62vh);
-  aspect-ratio: 1 / 1;
-  margin: 0 auto;
-  gap: 1px;
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 0.5rem;
-  overflow: hidden;
+/* Оболочка игрового экрана: на мобильных учитываем динамическую высоту вьюпорта
+   (адресная строка браузера и клавиатура) */
+.game-shell {
+  height: 100vh;
 }
-.board-cell {
-  background: #0f172a;
-  transition: background 0.15s ease;
-}
-.board-cell.cell-closed {
-  background: #111827;
-  background-image: radial-gradient(circle, #334155 1px, transparent 1.5px);
-  background-size: 8px 8px;
-}
-.board-cell.cell-hover-ok {
-  background: rgba(52, 211, 153, 0.3);
-}
-.board-cell.cell-hover-bad {
-  background: rgba(244, 63, 94, 0.3);
-}
-.board-cell.clickable:hover {
-  background: #1e293b;
-}
-.board-item {
-  position: relative;
-  z-index: 10;
+@supports (height: 100dvh) {
+  .game-shell {
+    height: 100dvh;
+  }
 }
 
 @keyframes flip-in {
@@ -132,6 +106,11 @@ body {
 }
 .toast-in {
   animation: toast-in 0.25s ease-out both;
+}
+
+/* Быстрые повторные нажатия в игре: отключаем double-tap zoom на кнопках */
+button {
+  touch-action: manipulation;
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }

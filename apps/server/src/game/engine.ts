@@ -218,7 +218,18 @@ export class Game {
   /** зал казино: плата за вход и диапазон ценности стола */
   readonly tier: TierDef;
   /** предопределённая (разыгранная заранее) ценность стола */
-  readonly tableValue: number;
+  /**
+   * Ценность стола. Разыгрывается залом ДО партии и служит целью при сборке,
+   * а после сборки фиксируется по фактической сумме предметов — иначе игрок
+   * видит в итогах одно число, а получает предметы на другое.
+   */
+  tableValue: number;
+  /**
+   * Исходная ценность, разыгранная залом до партии (цель сборки).
+   * tableValue после сборки равен фактической сумме предметов, поэтому
+   * для проверок нужна и цель.
+   */
+  rolledTableValue: number;
   /** тестовый стол (если задан — случайная генерация не используется) */
   private tableOverride: ItemInstance[] | null;
   private privateReveals = new Map<string, PrivateReveal[]>();
@@ -233,7 +244,9 @@ export class Game {
   private dropped: ItemInstance[] = [];
   private auction: AuctionInternal | null = null;
   private log: LogEntry[] = [];
-  private final: { standings: FinalStanding[]; winnerId: string } | null = null;
+  private final: NonNullable<PublicGame['final']> | null = null;
+  /** итоги последних торгов: нужны финальному экрану после сброса аукциона */
+  private finalAuction: NonNullable<NonNullable<PublicGame['final']>['auction']> | null = null;
   private finished = false;
   private pot = 0;
 
@@ -257,9 +270,8 @@ export class Game {
     this.tableOverride = opts.tableItems ?? null;
     // Ценность стола разыгрывается ЗАРАНЕЕ и фиксируется до начала партии.
     // Смещение к нижней границе: дорогие столы — редкость и потому желанны.
-    this.tableValue = Math.round(
-      this.tier.tableMin + (this.tier.tableMax - this.tier.tableMin) * Math.pow(this.rng(), 1.7),
-    );
+    this.tableValue = this.rollTableValue();
+    this.rolledTableValue = this.tableValue;
     this.onStateChange = opts.onStateChange;
     this.onFinished = opts.onFinished;
     this.players = opts.players.map((p) => ({
@@ -382,8 +394,9 @@ export class Game {
       if (a.phase === 'reveal') this.beginBid();
       else if (a.phase === 'bid') this.resolveBids();
       else if (a.phase === 'resolve') {
-        this.auction = null;
+        // Сначала подводим итоги (им нужны итоги торгов), потом убираем аукцион
         this.finishGame();
+        this.auction = null;
       }
     }
   }
@@ -420,12 +433,55 @@ export class Game {
    * к другу от правого верхнего угла. Когда требуемая плотность ценности
    * высока, редкости смещаются в сторону дорогих предметов.
    */
+  /**
+   * Розыгрыш ценности стола. Смещение к нижней границе: дорогие столы —
+   * редкость и потому желанны.
+   */
+  private rollTableValue(): number {
+    return Math.round(
+      this.tier.tableMin + (this.tier.tableMax - this.tier.tableMin) * Math.pow(this.rng(), 1.7),
+    );
+  }
+
+  /**
+   * Сборка стола. Предметы дискретны, поэтому фактическая сумма может не дотянуть
+   * до разыгранной цели — а игроку обещан стол в границах зала. Если не дотянули,
+   * пересобираем с новой целью (не больше трёх попыток, дальше берём лучшее).
+   */
   private buildTable(): void {
+    if (this.tableOverride || Number(process.env.GAME_TABLE_VALUE_OVERRIDE ?? 0) > 0) {
+      this.buildTableOnce();
+      // у оверрайда ценность уже задана извне — фиксируем её как есть
+      if (this.tableOverride) {
+        this.tableValue = itemsTotal(this.placed.map((pl) => pl.it));
+        this.rolledTableValue = this.tableValue;
+      }
+      return;
+    }
+    let best = 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      this.placed = [];
+      this.dropped = [];
+      this.buildTableOnce();
+      const placed = itemsTotal(this.placed.map((pl) => pl.it));
+      if (placed >= this.tier.tableMin) return; // стол в границах зала
+      if (placed > best) best = placed;
+      if (attempt < 2) {
+        this.tableValue = this.rollTableValue();
+        this.rolledTableValue = this.tableValue;
+      }
+    }
+    // трижды не дотянули — оставляем лучший результат, ценность по факту
+    this.tableValue = best;
+  }
+
+  private buildTableOnce(): void {
     // тестовый оверрайд: стол задан снаружи
     if (this.tableOverride && this.tableOverride.length > 0) {
       for (const it of this.tableOverride) {
         if (!this.tryPlaceItem({ ...it })) this.dropped.push({ ...it });
       }
+      this.finalizeTableValue();
       return;
     }
     // Тестовый оверрайд стоимости: позволяет интеграционным тестам получить
@@ -442,7 +498,13 @@ export class Game {
         const fitted = { ...item, value };
         if (this.tryPlaceItem(fitted)) placedValue += value;
       }
-      if (placedValue > 0) return;
+      if (placedValue > 0) {
+        // Ценность стола для игрока и для интерфейса должна совпадать
+        // с тем, что реально лежит на столе.
+        this.tableValue = placedValue;
+        this.rolledTableValue = placedValue;
+        return;
+      }
     }
     const totalCells = GRID_W * GRID_H;
     // Ценность стола ПРЕДОПРЕДЕЛЕНА залом и разыграна до начала партии:
@@ -498,22 +560,38 @@ export class Game {
     // пока доля не выбрана. Площадь выходит производной — это и даёт нужную
     // плотность без подгонки.
     const items: ItemInstance[] = [];
-    const valuePlan = RARITY_ORDER.map((_, i) => (shares[i] / shareSum) * target);
+    // Упаковка даёт систематический перебор (номиналы дискретны), поэтому
+    // планируем пул чуть ниже цели — тогда фактическая сумма садится на неё.
+    const PACKING_OVERSHOOT = 0.85;
+    const valuePlan = RARITY_ORDER.map((_, i) => (shares[i] / shareSum) * target * PACKING_OVERSHOOT);
     for (let ri = 0; ri < RARITY_ORDER.length; ri++) {
       const rarity = RARITY_ORDER[ri];
       const pool = ITEM_CATALOG.filter((d) => d.rarity === rarity);
       if (pool.length === 0) continue;
       let given = 0;
       let guard = 0;
-      while (given < valuePlan[ri] * 0.92 && guard++ < 400) {
+      const plan = valuePlan[ri];
+      while (given < plan && guard++ < 400) {
         const def = pool[Math.floor(this.rng() * pool.length)];
-        const remaining = valuePlan[ri] - given;
-        // последний предмет подрезаем под остаток доли, чтобы не перебрать
-        const fitted = def.value > remaining * 1.3
-          ? { ...instanceFromDef(def), value: Math.max(1, Math.round(remaining)) }
-          : instanceFromDef(def);
-        items.push(fitted);
-        given += fitted.value;
+        const remaining = plan - given;
+        // Собираем долю редкости ТОЧНО: если предмет не вписывается в остаток,
+        // берём более дешёвый, а в конце подрезаем номинал под остаток. Иначе
+        // фактическая сумма стола уходила за верхнюю границу зала.
+        let chosen = def;
+        if (def.value > remaining) {
+          const affordable = pool.filter((d) => d.value <= remaining);
+          if (affordable.length === 0) {
+            chosen = { ...def, value: Math.max(1, Math.round(remaining)) } as typeof def;
+            const fitted = { ...instanceFromDef(chosen), value: Math.max(1, Math.round(remaining)) };
+            items.push(fitted);
+            given += fitted.value;
+            break;
+          }
+          chosen = affordable[Math.floor(this.rng() * affordable.length)];
+        }
+        const inst = instanceFromDef(chosen);
+        items.push(inst);
+        given += inst.value;
       }
     }
 
@@ -523,7 +601,9 @@ export class Game {
     // Пул сбалансирован заранее, поэтому укладываем вразнобой: жадный выбор
     // «дорогие вперёд» съедал бюджет двумя предметами и оставлял стол пустым.
     const cellBudget = Math.max(coverTarget, hardCover);
-    const valueBudget = target * 1.18;
+    // Потолок — объявленная залом ценность: игрок не должен получить стол
+    // дороже заявленного (иначе диапазоны залов в интерфейсе становятся ложью).
+    const valueBudget = target;
     let value = 0;
     let covered = 0;
     this.shuffle(items);
@@ -575,6 +655,23 @@ export class Game {
         if (placedThisPass === 0) break;
       }
     }
+    this.finalizeTableValue();
+  }
+
+  /**
+   * Фиксирует ценность стола по фактически выставленным предметам.
+   * Цель при сборке и итог могут расходиться на дискретных предметах, и тогда
+   * расчёт в итоговой таблице («стол минус ставка») не сходился бы с реальностью.
+   */
+  private finalizeTableValue(): void {
+    const actual = itemsTotal(this.placed.map((pl) => pl.it));
+    // Сборка из дискретных предметов может уйти за границы зала (клетки网格а
+    // ограничивают, номиналы не совпадают с целью). Ценность стола — это
+    // объявленная залом величина, поэтому держим её в рамках зала: игрок не
+    // должен видеть в золотом зале стол дешевле его нижней границы.
+    // Верхнюю границу держим жёстко (стол не дороже заявленного), нижнюю
+    // обеспечивает повторная сборка в buildTable.
+    this.tableValue = Math.min(actual, this.tier.tableMax);
   }
 
   /**
@@ -883,6 +980,15 @@ export class Game {
       );
     }
     this.moneyToBank += price - compensation - bonus;
+    // Запоминаем итоги последних торгов: к моменту финального экрана
+    // this.auction уже сброшен, а игроку нужно видеть цену стола и ставку.
+    this.finalAuction = {
+      winnerId,
+      price,
+      tableValue: totalValue,
+      perLoserCompensation: perLoser,
+      voided: false,
+    };
     this.addLog('result', 'Победитель: ' + winner.name + ' за ' + fmt(price) + ' — забирает все предметы стола');
     if (losers.length > 0) {
       if (lostDeal > 0) {
@@ -912,6 +1018,7 @@ export class Game {
     this.revealAll();
     for (const pl of this.placed) this.dropped.push(pl.it);
     a.result = { voided: true };
+    this.rememberVoided();
     a.phase = 'resolve';
     this.deadline = this.now() + this.resolveSeconds * 1000;
     this.addLog('result', 'Ставки снова совпали — аукцион завершился без продажи, предметы сгорели');
@@ -937,19 +1044,70 @@ export class Game {
     this.addLog('reveal', 'Стол раскрыт полностью: ' + this.placed.length + ' предметов на ' + fmt(total));
   }
 
+  /**
+   * Строка итоговой таблицы. Профит считаем как разницу нетто-состояния:
+   * вход и ставка уже вычтены из наличных, а полученные предметы учтены
+   * в инвентаре — поэтому профит сразу показывает результат партии.
+   */
+  private standingRow(p: GPlayer): FinalStanding {
+    const inventoryValue = itemsTotal(p.inventory);
+    const total = p.cash + inventoryValue;
+    const startTotal = p.startCash + p.startInventoryValue;
+    return {
+      playerId: p.id,
+      cash: p.cash,
+      inventoryValue,
+      total,
+      place: 0,
+      startTotal,
+      profit: total - startTotal,
+      spent: p.spent,
+      inventoryGained: Math.max(0, inventoryValue - p.startInventoryValue),
+    };
+  }
+
+  /** Сгоревший стол (двойная ничья): победителя нет, деньги не двигались */
+  private rememberVoided(): void {
+    if (this.finalAuction) return;
+    this.finalAuction = {
+      winnerId: null,
+      price: 0,
+      tableValue: this.tableValue,
+      perLoserCompensation: 0,
+      voided: true,
+    };
+  }
+
+  /** Итоги торгов для финальной таблицы */
+  private auctionSummary(): {
+    winnerId: string | null;
+    price: number;
+    tableValue: number;
+    perLoserCompensation: number;
+    voided: boolean;
+  } {
+    // Итоги уже зафиксированы в момент расчёта: сброс аукциона их не затрагивает
+    if (this.finalAuction) return this.finalAuction;
+    const result = this.auction?.result;
+    return {
+      winnerId: result?.winnerId ?? null,
+      price: result?.price ?? 0,
+      tableValue: this.tableValue,
+      perLoserCompensation: 0,
+      voided: Boolean(result?.voided),
+    };
+  }
+
   private finishGame(): void {
     this.revealAll();
-    const standings: FinalStanding[] = this.players.map((p) => {
-      const inventoryValue = itemsTotal(p.inventory);
-      return { playerId: p.id, cash: p.cash, inventoryValue, total: p.cash + inventoryValue, place: 0 };
-    });
+    const standings: FinalStanding[] = this.players.map((p) => this.standingRow(p));
     standings.sort((a, b) => b.total - a.total || b.cash - a.cash || a.playerId.localeCompare(b.playerId));
     standings.forEach((s, i) => {
       s.place = i + 1;
     });
     const winnerId = standings[0].playerId;
     const winner = this.getPlayer(winnerId);
-    this.final = { standings, winnerId };
+    this.final = { standings, winnerId, auction: this.auctionSummary() };
     this.phase = 'finished';
     this.finished = true;
     this.deadline = 0;
@@ -959,10 +1117,7 @@ export class Game {
   }
 
   private buildReport(): FinalReport {
-    const standings: FinalStanding[] = this.players.map((p) => {
-      const inventoryValue = itemsTotal(p.inventory);
-      return { playerId: p.id, cash: p.cash, inventoryValue, total: p.cash + inventoryValue, place: 0 };
-    });
+    const standings: FinalStanding[] = this.players.map((p) => this.standingRow(p));
     standings.sort((a, b) => b.total - a.total || b.cash - a.cash || a.playerId.localeCompare(b.playerId));
     standings.forEach((s, i) => {
       s.place = i + 1;
@@ -979,9 +1134,7 @@ export class Game {
       moneyToBank: this.moneyToBank,
       antePot: this.pot,
       invested: Object.fromEntries(this.players.map((p) => [p.id, p.spent])),
-      profit: Object.fromEntries(
-        this.players.map((p) => [p.id, p.cash + itemsTotal(p.inventory) - p.startCash - p.startInventoryValue]),
-      ),
+      profit: Object.fromEntries(standings.map((s) => [s.playerId, s.profit])),
       prizeItems: this.placed.map((pl) => ({
         ...pl.it,
         // победитель аукциона получил предмет в инвентарь; сгоревшие — никому

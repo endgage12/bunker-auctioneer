@@ -63,9 +63,20 @@ describe('аудит: ценность стола определяется за�
           rng: mulberry32(seedN * 7919),
           now: () => 0,
         });
-        // ценность стола разыграна заранее и лежит внутри диапазона зала
-        expect(g.tableValue, tier.name).toBeGreaterThanOrEqual(tier.tableMin);
-        expect(g.tableValue, tier.name).toBeLessThanOrEqual(tier.tableMax);
+        // Ценность стола разыгрывается заранее и лежит внутри диапазона зала.
+        // Это ИСХОДНАЯ цель: после сборки tableValue фиксируется по фактической
+        // сумме предметов (её видит игрок), а цель остаётся в rolledTableValue.
+        expect(g.rolledTableValue, tier.name + ': цель зала').toBeGreaterThanOrEqual(tier.tableMin);
+        expect(g.rolledTableValue, tier.name + ': цель зала').toBeLessThanOrEqual(tier.tableMax);
+
+        // Ценность стола — это ровно сумма выставленных предметов (её видит
+        // игрок), и она держится в границах зала: не дороже заявленного и
+        // не дешевле нижней границы. Движок при недоборе пересобирает стол.
+        const placedSum = g.debug().placed.reduce((acc, pl) => acc + pl.it.value, 0);
+        expect(g.tableValue, tier.name + ': ценность = сумма предметов').toBe(placedSum);
+        expect(g.tableValue, tier.name + ': не дороже заявленного').toBeLessThanOrEqual(tier.tableMax);
+        expect(g.tableValue, tier.name + ': не дешевле границы зала').toBeGreaterThanOrEqual(tier.tableMin);
+        expect(g.tableValue, tier.name + ': стол не пустой').toBeGreaterThan(0);
 
         // взносы игроков на неё не влияют
         const before = g.tableValue;

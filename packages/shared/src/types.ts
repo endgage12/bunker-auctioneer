@@ -148,8 +148,20 @@ export interface FinalStanding {
   playerId: string;
   cash: number;
   inventoryValue: number;
+  /** нетто-состояние на финише: наличные + инвентарь */
   total: number;
   place: number;
+  /** нетто-состояние на старте: наличные + инвентарь до партии */
+  startTotal: number;
+  /**
+   * Итог партии: total − startTotal. Главная цифра для игрока —
+   * вход и ставка здесь уже учтены (наличные на финише их не содержат).
+   */
+  profit: number;
+  /** сколько игрок вложил за партию: вход + оплата выигранных торгов */
+  spent: number;
+  /** сколько добавилось инвентаря: ценность предметов, полученных за партию */
+  inventoryGained: number;
 }
 
 /** Личное раскрытие предмета (бонусы сетов — видит только владелец бонуса) */
@@ -205,7 +217,21 @@ export interface PublicGame {
   myStreak?: number;
   deadline: number;
   log: LogEntry[];
-  final?: { standings: FinalStanding[]; winnerId: string };
+  final?: {
+    standings: FinalStanding[];
+    winnerId: string;
+    /** итоги торгов: по какой цене ушёл стол и сколько было на столе */
+    auction?: {
+      winnerId: string | null;
+      price: number;
+      /** ценность стола, разыгранная до партии */
+      tableValue: number;
+      /** компенсация каждому проигравшему (10% от минуса победителя) */
+      perLoserCompensation: number;
+      /** стол сгорел из-за двойной ничьей */
+      voided: boolean;
+    };
+  };
   /** присутствует только в персональной рассылке (бонусы сетов) */
   private?: PlayerPrivate;
 }

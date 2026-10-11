@@ -96,6 +96,10 @@ import { onMounted, ref, watch } from 'vue';
 import { gsap, motionOK } from '../lib/animations';
 import type { PublicGame, PublicPlayer } from '@auctioneer/shared';
 
+const props = withDefaults(defineProps<{ game: PublicGame; meId: string; compact?: boolean }>(), {
+  compact: false,
+});
+
 /** корневой узел: область для анимаций */
 const rootEl = ref<HTMLElement | null>(null);
 /** ref-функция: в v-if-ветках одноимённый ref собирается в массив */
@@ -128,10 +132,6 @@ watch(
   () => void Promise.resolve().then(animatePlayers),
 );
 onMounted(animatePlayers);
-
-const props = withDefaults(defineProps<{ game: PublicGame; meId: string; compact?: boolean }>(), {
-  compact: false,
-});
 
 const AVATAR_COLORS = ['#fbbf24', '#60a5fa', '#34d399', '#f472b6', '#a78bfa', '#f87171', '#38bdf8', '#fb923c'];
 

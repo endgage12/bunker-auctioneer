@@ -9,11 +9,12 @@
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w @auctioneer/server\" \"npm run dev -w @auctioneer/web\"",
     "build": "npm run build -w @auctioneer/web",
-    "typecheck": "npm run typecheck -w @auctioneer/server && npm run typecheck -w @auctioneer/web",
+    "typecheck": "node scripts/check-setup-order.mjs && npm run typecheck -w @auctioneer/server && npm run typecheck -w @auctioneer/web",
     "test": "npm run test -w @auctioneer/server",
     "smoke": "node scripts/smoke.mjs",
     "bots:sla": "node scripts/bots-sla.mjs",
-    "test:e2e": "npm run test:e2e -w @auctioneer/server"
+    "test:e2e": "npm run test:e2e -w @auctioneer/server",
+    "check:setup": "node scripts/check-setup-order.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

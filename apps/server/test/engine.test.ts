@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ANTE_MIN, itemsTotal, mulberry32, randomInt } from '@auctioneer/shared';
+
+import {itemsTotal, mulberry32, randomInt, TIERS} from '@auctioneer/shared';
 import { Game } from '../src/game/engine';
 import type { EnginePlayerSeed, FinalReport, GameOptions } from '../src/game/engine';
 import type { ItemInstance } from '@auctioneer/shared';
+
+/** Фиксированная плата за вход: тесты играют в медном зале */
+const ENTRY = TIERS.bronze.entry;
 
 let counter = 0;
 function item(partial: Partial<ItemInstance> = {}): ItemInstance {
@@ -18,39 +22,70 @@ function makeGame(players: EnginePlayerSeed[], opts: Partial<GameOptions> = {}):
   return new Game({ id: 'g1', code: 'TEST', hostId: players[0].id, players, now: () => 0, ...opts });
 }
 
-describe('вступительные ставки', () => {
-  it('валидирует суммы и запирает фазу, когда все поставили', () => {
+describe('вход в партию (зал казино)', () => {
+  it('плата фиксирована залом, повторное подтверждение отклоняется', () => {
     const g = makeGame([seed('a', 100_000, []), seed('b', 100_000, [])]);
-    expect(g.phase).toBe('betting');
-    expect(g.submitAnte('a', 0)).not.toBeNull();
-    expect(g.submitAnte('a', -5)).not.toBeNull();
-    expect(g.submitAnte('a', 1_000_000)).not.toBeNull(); // больше лимита и кошелька
-    expect(g.submitAnte('a', 20_000)).toBeNull();
-    expect(g.submitAnte('b', 30_000)).toBeNull();
-    expect(g.deadline).toBe(0); // все поставили — немедленный лок
+    expect(g.phase).toBe('ready');
+    expect(g.tier.id).toBe('bronze');
+    expect(g.tableValue).toBeGreaterThan(0);
+    expect(g.confirmEntry('a')).toBeNull();
+    expect(g.confirmEntry('a')).not.toBeNull(); // повторно нельзя
+    expect(g.confirmEntry('нет-такого')).not.toBeNull();
+    expect(g.confirmEntry('b')).toBeNull();
+    expect(g.deadline).toBe(0); // все подтвердили — сразу торги
     g.advance();
     expect(g.phase).toBe('auction');
-    expect(g.debug().pot).toBe(50_000);
+    // со всех списана ровно плата за вход
+    expect(g.debug().pot).toBe(ENTRY * 2);
     const s = g.snapshot();
-    expect(s.players.find((p) => p.id === 'a')?.cash).toBe(80_000);
-    expect(s.players.find((p) => p.id === 'b')?.cash).toBe(70_000);
+    expect(s.players.find((p) => p.id === 'a')?.cash).toBe(100_000 - ENTRY);
+    expect(s.players.find((p) => p.id === 'b')?.cash).toBe(100_000 - ENTRY);
   });
 
-  it('при таймауте ставит минимум автоматически', () => {
+  it('на входе не хватает денег — отказ', () => {
+    const g = makeGame([seed('poor', ENTRY - 1, [])]);
+    const err = g.confirmEntry('poor');
+    expect(err).not.toBeNull();
+    expect(err).toContain('Нужно');
+  });
+
+  it('при таймауте плата списывается автоматически', () => {
     const g = makeGame([seed('a', 100_000, []), seed('b', 100_000, [])]);
-    g.submitAnte('a', 20_000);
-    g.advance(); // таймаут — b получает ANTE_MIN
+    g.confirmEntry('a');
+    g.advance(); // таймаут — b тоже платит
     expect(g.phase).toBe('auction');
-    expect(g.debug().pot).toBe(20_000 + ANTE_MIN);
-    expect(g.snapshot().players.find((p) => p.id === 'b')?.ante).toBe(ANTE_MIN);
+    expect(g.debug().pot).toBe(ENTRY * 2);
+    expect(g.snapshot().players.find((p) => p.id === 'b')?.ante).toBe(ENTRY);
+  });
+
+  it('ценность стола предопределена залом и не зависит от взносов', () => {
+    // стол разыгран заранее: подтверждение входа его не меняет
+    const g = makeGame([seed('a', 1_000_000, []), seed('b', 1_000_000, [])]);
+    const before = g.tableValue;
+    g.confirmEntry('a');
+    g.confirmEntry('b');
+    g.advance();
+    expect(g.tableValue).toBe(before);
+    const tableSum = g.debug().placed.reduce((sum, pl) => sum + pl.it.value, 0);
+    // стол собран под предопределённую ценность (допуск на упаковку)
+    expect(tableSum).toBeGreaterThan(before * 0.8);
+    expect(tableSum).toBeLessThan(before * 1.4);
+  });
+
+  it('дорогой зал требует дорогой вход и даёт дорогой стол', () => {
+    const gold = makeGame([seed('a', 5_000_000, []), seed('b', 5_000_000, [])], { tier: TIERS.gold });
+    expect(gold.tier.entry).toBe(1_000_000);
+    expect(gold.tableValue).toBeGreaterThanOrEqual(TIERS.gold.tableMin);
+    expect(gold.tableValue).toBeLessThanOrEqual(TIERS.gold.tableMax);
+    expect(gold.confirmEntry('a')).toBeNull();
   });
 });
 
 describe('аукцион', () => {
   it('раунд 1: ставка должна превышать вторую минимум в 2 раза', () => {
     const g = makeGame([seed('a', 100_000, []), seed('b', 100_000, [])]);
-    g.submitAnte('a', 10_000);
-    g.submitAnte('b', 10_000);
+    g.confirmEntry('a');
+    g.confirmEntry('b');
     g.advance(); // лок -> призовой лот, раунд 1
     expect(g.snapshot().auction?.round).toBe(1);
     g.advance(); // reveal -> bid
@@ -74,8 +109,8 @@ describe('аукцион', () => {
 
   it('граничные ставки считаются точно (без плавающей точки)', () => {
     const g = makeGame([seed('a', 100_000, []), seed('b', 100_000, [])]);
-    g.submitAnte('a', 10_000);
-    g.submitAnte('b', 10_000);
+    g.confirmEntry('a');
+    g.confirmEntry('b');
     g.advance();
     g.advance();
     g.submitBid('a', 100);
@@ -89,8 +124,8 @@ describe('аукцион', () => {
     const g = makeGame([seed('a', 100_000, []), seed('b', 100_000, [])], {
       onFinished: (r) => reports.push(r),
     });
-    g.submitAnte('a', 10_000);
-    g.submitAnte('b', 10_000);
+    g.confirmEntry('a');
+    g.confirmEntry('b');
     g.advance();
     for (let i = 0; i < 6; i++) {
       g.advance(); // reveal -> bid
@@ -121,8 +156,8 @@ describe('финальное раскрытие стола', () => {
       [seed('a', 100_000, []), seed('b', 100_000, [])],
       { rng: mulberry32(7) },
     );
-    g.submitAnte('a', 10_000);
-    g.submitAnte('b', 10_000);
+    g.confirmEntry('a');
+    g.confirmEntry('b');
     g.advance(); // лок ставок -> стол сгенерирован, раунд 1 (раскрыта лишь часть)
     expect(g.debug().placed.length).toBeGreaterThan(0);
     expect(g.snapshot().items.some((i) => !i.revealed)).toBe(true); // есть скрытые
@@ -166,8 +201,8 @@ describe('полная игра', () => {
       now: () => 0,
       onFinished: (r) => reports.push(r),
     });
-    g.submitAnte('a', 20_000);
-    g.submitAnte('b', 15_000);
+    g.confirmEntry('a');
+    g.confirmEntry('b');
     g.advance(); // лок ставок
     const prizeTotal = itemsTotal(g.debug().placed.map((pl) => pl.it));
 
@@ -213,8 +248,8 @@ describe('отчёт о партии: вложения и разница', () =>
       ],
       { rng: mulberry32(42), onFinished: (r) => reports.push(r) },
     );
-    g.submitAnte('a', 10_000);
-    g.submitAnte('b', 10_000);
+    g.confirmEntry('a');
+    g.confirmEntry('b');
     g.advance(); // лок ставок -> аукцион
     g.advance(); // reveal -> bid
     g.submitBid('a', 5_000); // 5 000 >= 2 × 2 000 — победа в 1-м раунде

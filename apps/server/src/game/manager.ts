@@ -1,7 +1,7 @@
 // Менеджер комнат: жизненный цикл, тик игр, снимок комнаты ожидания
 import { randomBytes } from 'node:crypto';
-import { GRID_H, GRID_W, MAX_PLAYERS } from '@auctioneer/shared';
-import type { PublicGame, RoomInfo } from '@auctioneer/shared';
+import { DEFAULT_TIER, GRID_H, GRID_W, MAX_PLAYERS } from '@auctioneer/shared';
+import type { PublicGame, RoomInfo, TierDef, TierId } from '@auctioneer/shared';
 import type { Game } from './engine';
 
 export interface MemberInfo {
@@ -16,16 +16,21 @@ export interface MemberInfo {
 export class Room {
   readonly id: string;
   readonly code: string;
+  /** зал казино: определяет плату за вход и ценность стола */
+  readonly tier: TierDef;
   hostId: string;
   members = new Map<string, MemberInfo>();
   game: Game | null = null;
   state: 'waiting' | 'game' = 'waiting';
+  /** когда комната появилась — используется для метрики ожидания лобби */
+  readonly waitingSince: number = Date.now();
   /** вызывается при каждом изменении состояния игры (для рассылки по сокетам) */
   onUpdate: (() => void) | null = null;
 
-  constructor(id: string, code: string, host: MemberInfo) {
+  constructor(id: string, code: string, host: MemberInfo, tier: TierDef = DEFAULT_TIER) {
     this.id = id;
     this.code = code;
+    this.tier = tier;
     this.hostId = host.id;
     this.members.set(host.id, host);
   }
@@ -37,9 +42,9 @@ export class Manager {
   private rooms = new Map<string, Room>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  createRoom(host: MemberInfo): Room {
+  createRoom(host: MemberInfo, tier: TierDef = DEFAULT_TIER): Room {
     const code = this.genCode();
-    const room = new Room(crypto.randomUUID(), code, host);
+    const room = new Room(crypto.randomUUID(), code, host, tier);
     this.rooms.set(code, room);
     this.ensureTimer();
     return room;
@@ -61,14 +66,30 @@ export class Manager {
    * Ближайшая к старту свободная комната для быстрого подбора:
    * комната ожидания с наибольшим числом игроков (при равенстве — созданная раньше).
    */
-  pickQuickRoom(): Room | undefined {
+  pickQuickRoom(tierId?: string): Room | undefined {
     let best: Room | undefined;
     for (const room of this.rooms.values()) {
       if (room.state !== 'waiting') continue;
       if (room.members.size >= MAX_PLAYERS) continue;
+      // Залы не смешиваются: игрок попадает только в свой зал
+      if (tierId && room.tier.id !== tierId) continue;
       if (!best || room.members.size > best.members.size) best = room;
     }
     return best;
+  }
+
+  /** Комнаты ожидания конкретного зала (для витрины залов в лобби) */
+  listRoomsByTier(): Record<string, { waiting: number; players: number }> {
+    const out: Record<string, { waiting: number; players: number }> = {};
+    for (const room of this.rooms.values()) {
+      if (room.state !== 'waiting') continue;
+      const key = room.tier.id;
+      const entry = out[key] ?? { waiting: 0, players: 0 };
+      entry.waiting += 1;
+      entry.players += room.members.size;
+      out[key] = entry;
+    }
+    return out;
   }
 
   listRooms(): RoomInfo[] {
@@ -139,6 +160,16 @@ export function waitingSnapshot(room: Room): PublicGame {
     auction: null,
     deadline: 0,
     log: [],
+    tier: {
+      id: room.tier.id,
+      name: room.tier.name,
+      tagline: room.tier.tagline,
+      entry: room.tier.entry,
+      tableMin: room.tier.tableMin,
+      tableMax: room.tier.tableMax,
+      color: room.tier.color,
+      icon: room.tier.icon,
+    },
   };
 }
 

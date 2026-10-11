@@ -153,7 +153,8 @@
               <div
                 v-for="it in boxItems"
                 :key="it.id"
-                class="inv-item rounded transition-opacity relative"
+                :data-santa-item="it.id"
+                class="inv-item rounded relative"
                 :class="{ 'opacity-50': dragId === it.id, 'item-selected': selectedItem && selectedItem.id === it.id }"
                 :style="santaItemStyle(it)"
                 :title="it.name + ' ' + it.w + 'x' + it.h + ' — ' + fmt(it.value)"
@@ -247,6 +248,7 @@ import { get, post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
+import { gsap, motionOK } from '../lib/animations';
 import ItemCard from '../components/ItemCard.vue';
 import CoinAmount from '../components/CoinAmount.vue';
 
@@ -669,6 +671,26 @@ async function sacrificeAt(it: InventoryRow, x: number, y: number): Promise<void
   try {
     await post('/api/santa/sacrifice', { itemId: it.id, x, y });
     await refresh();
+    // вложение безвозвратное: ящик коротко вспыхивает, а при наборе минимума — сильнее
+    if (motionOK) {
+      const box = boxEl.value;
+      const filled = santa.value ? santa.value.box.filter((b) => b.kind === 'sacrifice').length : 0;
+      if (box) {
+        const strong = filled >= SANTA_MIN_ITEMS;
+        gsap.fromTo(
+          box,
+          { filter: 'brightness(1)', scale: 1 },
+          {
+            filter: strong ? 'brightness(1.6)' : 'brightness(1.25)',
+            scale: strong ? 1.02 : 1.01,
+            duration: strong ? 0.3 : 0.2,
+            yoyo: true,
+            repeat: strong ? 2 : 1,
+            ease: 'power2.inOut',
+          },
+        );
+      }
+    }
     if (!santa.value) return;
     const placed = santa.value.box.filter((b) => b.kind === 'sacrifice').length;
     if (placed < SANTA_MIN_ITEMS) {
@@ -689,6 +711,20 @@ async function sacrificeAt(it: InventoryRow, x: number, y: number): Promise<void
 // ---------- загрузка и таймер ----------
 
 let refreshPromise: Promise<void> | null = null;
+
+/** Появление нового дропа в ящике: предметы «вылетают» каскадом */
+function animateFreshDrops(ids: string[]): void {
+  if (!motionOK || ids.length === 0) return;
+  const els = ids
+    .map((id) => boxEl.value?.querySelector('[data-santa-item="' + id + '"]') as HTMLElement | null)
+    .filter((el): el is HTMLElement => !!el);
+  if (els.length === 0) return;
+  gsap.fromTo(
+    els,
+    { scale: 0.4, opacity: 0, rotate: -8 },
+    { scale: 1, opacity: 1, rotate: 0, duration: 0.5, stagger: 0.08, ease: 'back.out(2)' },
+  );
+}
 
 function refresh(): Promise<void> {
   if (!refreshPromise) {

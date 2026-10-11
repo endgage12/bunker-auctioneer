@@ -26,6 +26,11 @@ export const config = {
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
   allowDevLogin: (process.env.ALLOW_DEV_LOGIN ?? 'true') === 'true',
+  /**
+   * Пароль личного аккаунта shlepafloppa (кнопка «Войти как shlepafloppa»).
+   * Проверяется только на сервере — в клиентский бандл пароль не попадает.
+   */
+  shlepafloppaPassword: process.env.SHLEPAFLOPPA_PASSWORD ?? 'zasq12',
   /** почты (через запятую), которым выдаются права администратора банка дома */
   adminEmails: (process.env.ADMIN_EMAILS ?? '')
     .split(',')

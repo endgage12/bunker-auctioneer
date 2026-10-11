@@ -71,8 +71,8 @@ export const useGameStore = defineStore('game', {
       return this.emitAck(C2S.joinRoom, code);
     },
     /** Быстрый подбор: ближайшая свободная комната или новая */
-    play(): Promise<{ code: string } | { error: string }> {
-      return this.emitAck(C2S.play);
+    play(tier?: string): Promise<{ code: string } | { error: string }> {
+      return this.emitAck(C2S.play, { tier });
     },
     setReady(ready: boolean): void {
       this.socket?.emit(C2S.ready, { ready });
@@ -80,8 +80,9 @@ export const useGameStore = defineStore('game', {
     start(): void {
       this.socket?.emit(C2S.start);
     },
-    ante(amount: number): void {
-      this.socket?.emit(C2S.ante, { amount });
+    /** Подтвердить вход в партию: плата фиксирована залом, сумма не нужна */
+    ante(): void {
+      this.socket?.emit(C2S.ante, {});
     },
     bid(amount: number): void {
       this.socket?.emit(C2S.bid, { amount });

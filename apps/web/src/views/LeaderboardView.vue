@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen">
+  <div ref="rootEl" class="min-h-screen">
     <TopNav />
     <div class="max-w-3xl mx-auto p-4 sm:p-6">
       <div class="panel p-5">
@@ -7,9 +7,17 @@
           <h2 class="font-semibold">Таблица лидеров</h2>
           <span class="text-xs text-slate-500">счёт = наличные + номинал инвентаря</span>
         </div>
-        <p class="text-xs text-slate-500 mb-4">
+        <p class="text-xs text-slate-500 mb-3">
           Топ игроков по состоянию. Место обновляется при каждом открытии страницы.
         </p>
+
+        <label class="flex items-center gap-2 mb-4 text-xs text-slate-400 select-none cursor-pointer">
+          <input v-model="includeBots" type="checkbox" class="accent-amber-500" @change="load(1)" />
+          <span>
+            показывать ботов
+            <span v-if="botsTotal > 0" class="text-slate-500">({{ botsTotal }} шт., людей {{ humansTotal }})</span>
+          </span>
+        </label>
 
         <div v-if="loading && entries.length === 0" class="text-sm text-slate-400 py-6 text-center">Загрузка…</div>
         <div v-else-if="error" class="text-sm text-rose-300 py-6 text-center">{{ error }}</div>
@@ -45,6 +53,13 @@
             >
               {{ e.name }}
             </router-link>
+            <span
+              v-if="e.isBot"
+              class="shrink-0 rounded-full border border-fuchsia-500/40 px-1.5 py-0.5 text-[10px] text-fuchsia-300"
+              title="ИИ-игрок: играет по тем же правилам, что и люди"
+            >
+              бот
+            </span>
             <div class="shrink-0 text-right">
               <div class="font-mono text-amber-300 text-sm leading-tight">
                 <CoinAmount :value="e.netWorth" />
@@ -102,8 +117,10 @@ import type { LeaderboardEntry, LeaderboardResponse } from '@auctioneer/shared';
 import { get } from '../lib/api';
 import TopNav from '../components/TopNav.vue';
 import CoinAmount from '../components/CoinAmount.vue';
+import { motionOK, staggerIn } from '../lib/animations';
 
 const PAGE_SIZE = 30;
+const rootEl = ref<HTMLElement | null>(null);
 
 const entries = ref<LeaderboardEntry[]>([]);
 const me = ref<LeaderboardEntry | null>(null);
@@ -112,6 +129,10 @@ const total = ref(0);
 const totalPages = ref(1);
 const loading = ref(true);
 const error = ref('');
+/** показывать ли ботов в таблице (по умолчанию да — они честно зарабатывают место) */
+const includeBots = ref(true);
+const botsTotal = ref(0);
+const humansTotal = ref(0);
 
 const shownIds = computed(() => new Set(entries.value.map((e) => e.id)));
 
@@ -120,17 +141,20 @@ async function load(p: number): Promise<void> {
   error.value = '';
   try {
     const data = await get<LeaderboardResponse>(
-      '/api/leaderboard?page=' + p + '&pageSize=' + PAGE_SIZE,
+      '/api/leaderboard?page=' + p + '&pageSize=' + PAGE_SIZE + '&includeBots=' + (includeBots.value ? '1' : '0'),
     );
     entries.value = data.entries;
     me.value = data.me;
     page.value = data.page;
     total.value = data.total;
     totalPages.value = data.totalPages;
+    botsTotal.value = data.botsTotal ?? 0;
+    humansTotal.value = data.humansTotal ?? 0;
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Не удалось загрузить таблицу';
   } finally {
     loading.value = false;
+    void Promise.resolve().then(animateRows);
   }
 }
 
@@ -154,6 +178,14 @@ function rankClass(rank: number): string {
   if (rank === 2) return 'text-slate-300';
   if (rank === 3) return 'text-orange-400';
   return 'text-slate-500';
+}
+
+/** Каскадное появление таблицы: топ «выезжает» строка за строкой */
+function animateRows(): void {
+  if (!motionOK) return;
+  const rows = rootEl.value?.querySelectorAll('.leader-row');
+  if (!rows || rows.length === 0) return;
+  staggerIn(rows, { stagger: 0.02, y: 8, duration: 0.26 });
 }
 
 onMounted(() => {

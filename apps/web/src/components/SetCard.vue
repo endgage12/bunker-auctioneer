@@ -1,5 +1,5 @@
 <template>
-  <div class="panel p-5 flex flex-col gap-3" :class="set.active ? 'ring-2 ring-amber-400/60' : ''">
+  <div :data-set="set.setId" class="panel p-5 flex flex-col gap-3" :class="set.active ? 'ring-2 ring-amber-400/60' : ''">
     <div class="flex items-start justify-between gap-2">
       <div>
         <h3 class="font-semibold">{{ set.name }}</h3>
@@ -24,9 +24,9 @@
         v-for="slot in set.slots"
         :key="slot.defId"
         class="w-20 h-24 rounded-lg border border-dashed flex flex-col overflow-hidden"
-        :class="slot.placed ? 'border-amber-400/50 bg-slate-800/40' : 'border-slate-600'"
+        :class="slot.placed ? 'set-slot-on border-amber-400/50 bg-slate-800/40' : 'border-slate-600'"
       >
-        <div v-if="slot.placed" class="flex-1 min-h-0">
+        <div v-if="slot.placed" class="set-slot-filled flex-1 min-h-0">
           <ItemCard :name="slot.name" :rarity="slot.rarity" :def-id="slot.defId" dense :show-value="false" />
           <button class="text-[9px] text-rose-300 hover:text-rose-200 w-full" @click="$emit('remove', slot.itemId)">
             убрать

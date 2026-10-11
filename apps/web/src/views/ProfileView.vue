@@ -38,31 +38,31 @@
 
         <!-- статистика -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div class="panel p-4 text-center">
+          <div data-stat-tile class="panel p-4 text-center">
             <div class="text-2xl font-bold text-amber-300 font-mono">{{ profile.gamesPlayed }}</div>
             <div class="text-xs text-slate-500 mt-1">игр сыграно</div>
           </div>
-          <div class="panel p-4 text-center">
+          <div data-stat-tile class="panel p-4 text-center">
             <div class="text-2xl font-bold text-amber-300 font-mono">{{ profile.gamesWon }}</div>
             <div class="text-xs text-slate-500 mt-1">побед</div>
           </div>
-          <div class="panel p-4 text-center">
+          <div data-stat-tile class="panel p-4 text-center">
             <div class="text-2xl font-bold text-amber-300 font-mono">{{ winRate }}%</div>
             <div class="text-xs text-slate-500 mt-1">винрейт</div>
           </div>
-          <div class="panel p-4 text-center">
+          <div data-stat-tile class="panel p-4 text-center">
             <div class="text-2xl font-bold text-amber-300 font-mono"><CoinAmount :value="profile.netWorth" /></div>
             <div class="text-xs text-slate-500 mt-1">состояние (наличные + инвентарь)</div>
           </div>
-          <div class="panel p-4 text-center">
+          <div data-stat-tile class="panel p-4 text-center">
             <div class="text-2xl font-bold text-amber-300 font-mono">{{ profile.itemsCount }}</div>
             <div class="text-xs text-slate-500 mt-1">предметов</div>
           </div>
-          <div class="panel p-4 text-center">
+          <div data-stat-tile class="panel p-4 text-center">
             <div class="text-2xl font-bold text-amber-300 font-mono"><CoinAmount :value="profile.inventoryValue" /></div>
             <div class="text-xs text-slate-500 mt-1">номинал инвентаря</div>
           </div>
-          <div class="panel p-4 text-center">
+          <div data-stat-tile class="panel p-4 text-center">
             <div class="text-2xl font-bold text-amber-300 font-mono">{{ profile.completedSets }} / {{ profile.totalSets }}</div>
             <div class="text-xs text-slate-500 mt-1">сетов собрано</div>
           </div>
@@ -91,7 +91,7 @@
           <div v-if="history.length === 0" class="text-sm text-slate-500">Пока нет сыгранных матчей</div>
           <div v-else class="flex flex-col gap-2">
             <div
-              v-for="h in history"
+              v-for="h in history" data-history-row
               :key="h.gameId"
               class="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-800/40 cursor-pointer transition hover:bg-slate-800/80"
               :title="'Открыть предметы матча ' + h.code"
@@ -187,6 +187,7 @@ import type { GameDetail, MatchHistoryEntry, PublicProfile } from '@auctioneer/s
 import { get } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import TopNav from '../components/TopNav.vue';
+import { motionOK, staggerIn } from '../lib/animations';
 import ItemCard from '../components/ItemCard.vue';
 import CoinAmount from '../components/CoinAmount.vue';
 import Dialog from '../components/ui/dialog/Dialog.vue';
@@ -304,6 +305,25 @@ function onVisible(): void {
   if (document.visibilityState === 'visible') void load();
 }
 
-onMounted(() => document.addEventListener('visibilitychange', onVisible));
+/**
+ * Профиль «набегает»: плитки статистики и строки истории появляются каскадом.
+ * Ждём отрисовки — данные приходят асинхронно.
+ */
+function animateProfile(): void {
+  if (!motionOK) return;
+  void Promise.resolve().then(() => {
+    const tiles = document.querySelectorAll('[data-stat-tile]');
+    if (tiles.length) staggerIn(tiles, { stagger: 0.05, y: 12, duration: 0.3 });
+    const rows = document.querySelectorAll('[data-history-row]');
+    if (rows.length) staggerIn(rows, { stagger: 0.02, y: 8, duration: 0.24, delay: 0.15 });
+  });
+}
+
+// после каждой загрузки профиля проигрываем появление заново
+watch(history, () => animateProfile());
+onMounted(() => {
+  animateProfile();
+  document.addEventListener('visibilitychange', onVisible);
+});
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisible));
 </script>

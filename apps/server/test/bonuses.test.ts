@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BID_SECONDS, mulberry32 } from '@auctioneer/shared';
+import {BID_SECONDS, mulberry32} from '@auctioneer/shared';
 import { Game } from '../src/game/engine';
 import type { EnginePlayerSeed, GameOptions } from '../src/game/engine';
 import type { ItemInstance } from '@auctioneer/shared';
@@ -16,7 +16,7 @@ function seed(id: string, cash: number, items: ItemInstance[]): EnginePlayerSeed
 
 function makeGame(players: EnginePlayerSeed[], opts: Partial<GameOptions> = {}): Game {
   const g = new Game({ id: 'g1', code: 'TEST', hostId: players[0].id, players, now: () => 0, ...opts });
-  for (const p of players) g.submitAnte(p.id, 100_000);
+  for (const p of players) g.confirmEntry(p.id);
   g.advance(); // лок ставок -> призовой лот (банк 200k -> лоты по несколько предметов)
   return g;
 }

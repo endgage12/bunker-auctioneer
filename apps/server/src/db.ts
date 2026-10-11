@@ -3,7 +3,16 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from './config';
-import { generateStarterPack, mulberry32, START_CASH } from '@auctioneer/shared';
+import {
+  generateStarterPack,
+  mulberry32,
+  nextRank,
+  rankForWinnings,
+  START_CASH,
+  TIER_IDS,
+  tierUnlockedByRank,
+  VENDOR_RATE,
+} from '@auctioneer/shared';
 import { generateSantaReward, INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_TTL_MS, SANTA_COLS, SANTA_MIN_ITEMS, SANTA_ROWS, SETS, marketFee, santaRewardCount, santaTimerMs } from '@auctioneer/shared';
 import { CARD_DEFS, RARITY_LABEL, RARITY_ORDER, WHEEL_TICKET_DEF_ID, WHEEL_TICKET_NAME, findCard, pickCardByWeight } from '@auctioneer/shared';
 import type {
@@ -19,6 +28,7 @@ import type {
   MarketHistoryEntry,
   MatchHistoryEntry,
   MarketListing,
+  PlayerProgress,
   Profile,
   PublicProfile,
   Rarity,
@@ -41,6 +51,16 @@ export interface UserRow {
   gamesPlayed: number;
   gamesWon: number;
   isAdmin: boolean;
+  /** аккаунт управляется ботом */
+  isBot: boolean;
+  /** характер бота (id архетипа), null для людей */
+  botKind: string | null;
+  /** накопленный итог партий за карьеру (может быть отрицательным) */
+  totalWinnings: number;
+  /** лучшая серия побед подряд */
+  bestStreak: number;
+  /** текущая серия побед подряд */
+  currentStreak: number;
   lastTransmuteAt: number;
   createdAt: number;
 }
@@ -60,6 +80,11 @@ const SCHEMA = [
   '  games_played INTEGER NOT NULL DEFAULT 0,',
   '  games_won INTEGER NOT NULL DEFAULT 0,',
   '  is_admin INTEGER NOT NULL DEFAULT 0,',
+  '  is_bot INTEGER NOT NULL DEFAULT 0,',
+  '  bot_kind TEXT,',
+  '  total_winnings INTEGER NOT NULL DEFAULT 0,',
+  '  best_streak INTEGER NOT NULL DEFAULT 0,',
+  '  current_streak INTEGER NOT NULL DEFAULT 0,',
   '  created_at INTEGER NOT NULL',
   ');',
   'CREATE TABLE IF NOT EXISTS items (',
@@ -186,6 +211,23 @@ db.exec(SCHEMA);
   if (!cols.some((c) => c.name === 'last_transmute_at')) {
     db.exec('ALTER TABLE users ADD COLUMN last_transmute_at INTEGER');
   }
+  // Боты — обычные аккаунты с пометкой и сохранённым характером
+  if (!cols.some((c) => c.name === 'is_bot')) {
+    db.exec('ALTER TABLE users ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!cols.some((c) => c.name === 'bot_kind')) {
+    db.exec('ALTER TABLE users ADD COLUMN bot_kind TEXT');
+  }
+  // Прогрессия: накопленный итог и серии побед
+  if (!cols.some((c) => c.name === 'total_winnings')) {
+    db.exec('ALTER TABLE users ADD COLUMN total_winnings INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!cols.some((c) => c.name === 'best_streak')) {
+    db.exec('ALTER TABLE users ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!cols.some((c) => c.name === 'current_streak')) {
+    db.exec('ALTER TABLE users ADD COLUMN current_streak INTEGER NOT NULL DEFAULT 0');
+  }
   const itemCols = db.prepare("SELECT name FROM pragma_table_info('items')").all() as unknown as Row[];
   if (!itemCols.some((c) => c.name === 'inv_x')) {
     db.exec('ALTER TABLE items ADD COLUMN inv_x INTEGER');
@@ -225,6 +267,11 @@ function mapUser(r: Row | undefined): UserRow | null {
     gamesPlayed: Number(r.games_played),
     gamesWon: Number(r.games_won),
     isAdmin: Number(r.is_admin) === 1,
+    isBot: Number(r.is_bot) === 1,
+    botKind: r.bot_kind == null ? null : String(r.bot_kind),
+    totalWinnings: Number(r.total_winnings ?? 0),
+    bestStreak: Number(r.best_streak ?? 0),
+    currentStreak: Number(r.current_streak ?? 0),
     lastTransmuteAt: Number(r.last_transmute_at ?? 0),
     createdAt: Number(r.created_at),
   };
@@ -268,8 +315,14 @@ function createStarterPack(userId: string): ItemInstance[] {
   for (let i = 0; i < STARTER_ANALYZER_CARDS; i++) {
     insCard.run(crypto.randomUUID(), userId, 'analyzer-small', now);
   }
-  db.prepare('UPDATE users SET cash = ? WHERE id = ?').run(START_CASH, userId);
-  houseAdjust(-START_CASH, 'starter', userId, 'Стартовый капитал игрока');
+  // Банк не выдаёт стартовый капитал, которого у него нет: иначе появляются
+  // деньги из воздуха. Пополнить банк можно в админ-панели.
+  if (houseCanAfford(START_CASH)) {
+    db.prepare('UPDATE users SET cash = ? WHERE id = ?').run(START_CASH, userId);
+    houseAdjust(-START_CASH, 'starter', userId, 'Стартовый капитал игрока');
+  } else {
+    db.prepare('UPDATE users SET cash = 0 WHERE id = ?').run(userId);
+  }
   return pack;
 }
 
@@ -319,10 +372,52 @@ export function findOrCreateAdminUser(): UserRow {
   return mapUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined)!;
 }
 
+/** Постоянный (персональный) аккаунт для входа по паролю: кнопка «Войти как shlepafloppa» */
+export function findOrCreatePersonalUser(email: string, name: string): UserRow {
+  const existing = db.prepare('SELECT * FROM users WHERE email = ? AND google_id IS NULL').get(email) as Row | undefined;
+  // имя при повторном входе не перезаписываем — пользователь мог его поменять
+  if (existing) {
+    return mapUser(db.prepare('SELECT * FROM users WHERE id = ?').get(String(existing.id)) as Row | undefined)!;
+  }
+  return insertUser(null, email, name, null);
+}
+
+/**
+ * Аккаунт бота. Создаётся один раз вместе со стартовым набором новичка —
+ * у ботов ровно те же условия, что у людей (никаких выдач сверх стартовых).
+ */
+export function findOrCreateBotUser(email: string, name: string, avatar: string, characterId: string): UserRow {
+  const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as Row | undefined;
+  if (existing) {
+    const id = String(existing.id);
+    // помечаем на случай, если аккаунт был создан до появления ботов
+    db.prepare('UPDATE users SET is_bot = 1 WHERE id = ?').run(id);
+    if (existing.bot_kind == null) db.prepare('UPDATE users SET bot_kind = ? WHERE id = ?').run(characterId, id);
+    if (existing.avatar == null) db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, id);
+    return mapUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined)!;
+  }
+  const id = crypto.randomUUID();
+  db.prepare(
+    'INSERT INTO users (id, google_id, email, name, avatar, cash, is_bot, bot_kind, created_at) VALUES (?, NULL, ?, ?, ?, 0, 1, ?, ?)',
+  ).run(id, email, name, avatar, characterId, Date.now());
+  createStarterPack(id);
+  return mapUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined)!;
+}
+
+/** Все аккаунты ботов (для запуска парка при старте сервера) */
+export function listBotUsers(): UserRow[] {
+  const rows = db.prepare('SELECT * FROM users WHERE is_bot = 1 ORDER BY created_at ASC').all() as unknown as Row[];
+  return rows.map((r) => mapUser(r)!).filter(Boolean);
+}
+
+export function isBotUser(userId: string): boolean {
+  const u = getUserById(userId);
+  return !!u?.isBot;
+}
+
 export function getUserById(id: string): UserRow | null {
   return mapUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as Row | undefined);
 }
-
 function listInventory(userId: string): InventoryRow[] {
   const rows = db.prepare(
     'SELECT id, def_id, name, rarity, value, w, h, inv_x, inv_y FROM items WHERE user_id = ? AND game_id IS NULL AND id NOT IN (SELECT item_id FROM market_listings) AND id NOT IN (SELECT item_id FROM showcase_items) ORDER BY value DESC',
@@ -340,6 +435,34 @@ function listInventory(userId: string): InventoryRow[] {
   }));
 }
 
+/**
+ * Прогресс игрока: ранг по накопленному итогу, серии побед и доступные залы.
+ * Считается на лету из полей users — отдельная таблица не нужна.
+ */
+export function getPlayerProgress(userId: string): PlayerProgress | null {
+  const u = getUserById(userId);
+  if (!u) return null;
+  const rank = rankForWinnings(u.totalWinnings);
+  const nextInfo = nextRank(u.totalWinnings);
+  // доля пути от текущего ранга до следующего
+  const from = rank.minWinnings;
+  const to = nextInfo ? nextInfo.rank.minWinnings : rank.minWinnings;
+  const progress = nextInfo && to > from ? Math.min(1, (u.totalWinnings - from) / (to - from)) : 1;
+  const unlocked = TIER_IDS.filter((t) => tierUnlockedByRank(t, u.totalWinnings));
+  return {
+    rankId: rank.id,
+    rankName: rank.name,
+    rankColor: rank.color,
+    rankIcon: rank.icon,
+    totalWinnings: u.totalWinnings,
+    bestStreak: u.bestStreak,
+    currentStreak: u.currentStreak,
+    next: nextInfo ? { name: nextInfo.rank.name, minWinnings: nextInfo.rank.minWinnings, remaining: nextInfo.remaining } : null,
+    progress,
+    unlockedTiers: unlocked,
+  };
+}
+
 export function getProfile(userId: string): Profile | null {
   const u = getUserById(userId);
   if (!u) return null;
@@ -353,6 +476,11 @@ export function getProfile(userId: string): Profile | null {
     gamesPlayed: u.gamesPlayed,
     gamesWon: u.gamesWon,
     isAdmin: u.isAdmin,
+    isBot: u.isBot,
+    botCharacter: u.botKind ?? undefined,
+    progress: getPlayerProgress(userId) ?? undefined,
+    currentStreak: u.currentStreak,
+    totalWinnings: u.totalWinnings,
   };
 }
 
@@ -370,6 +498,7 @@ export function getPublicProfile(userId: string): PublicProfile | null {
     name: u.name,
     avatar: u.avatar ?? undefined,
     isAdmin: u.isAdmin,
+    isBot: u.isBot,
     createdAt: u.createdAt,
     gamesPlayed: u.gamesPlayed,
     gamesWon: u.gamesWon,
@@ -382,16 +511,21 @@ export function getPublicProfile(userId: string): PublicProfile | null {
 }
 
 /** Таблица лидеров: топ игроков по «счёту» (наличные + номинал инвентаря), постранично */
-export function getLeaderboard(page: number, pageSize: number, selfId: string): LeaderboardResponse {
+export function getLeaderboard(
+  page: number,
+  pageSize: number,
+  selfId: string,
+  includeBots = true,
+): LeaderboardResponse {
   const rows = db
     .prepare(
-      'SELECT u.id, u.name, u.avatar, u.cash, u.games_won AS gamesWon, ' +
+      'SELECT u.id, u.name, u.avatar, u.cash, u.is_bot AS isBot, u.games_won AS gamesWon, ' +
         'COALESCE((SELECT SUM(i.value) FROM items i WHERE i.user_id = u.id), 0) AS invValue ' +
         'FROM users u WHERE u.id != ? ' +
         'ORDER BY (u.cash + COALESCE((SELECT SUM(i.value) FROM items i WHERE i.user_id = u.id), 0)) DESC, u.created_at ASC',
     )
     .all(HOUSE_ID) as Row[];
-  const all: LeaderboardEntry[] = rows.map((r, idx) => ({
+  const everyone: LeaderboardEntry[] = rows.map((r, idx) => ({
     rank: idx + 1,
     id: String(r.id),
     name: String(r.name),
@@ -400,7 +534,12 @@ export function getLeaderboard(page: number, pageSize: number, selfId: string): 
     inventoryValue: Number(r.invValue),
     netWorth: Number(r.cash) + Number(r.invValue),
     gamesWon: Number(r.gamesWon ?? 0),
+    isBot: Number(r.isBot) === 1,
   }));
+  const botsTotal = everyone.filter((e) => e.isBot).length;
+  const humansTotal = everyone.length - botsTotal;
+  // ранги считаются по общему списку, поэтому позиция в топе сопоставима с ботами
+  const all = includeBots ? everyone : everyone.filter((e) => !e.isBot);
   const size = Math.max(1, Math.min(200, Math.floor(pageSize) || 30));
   const totalPages = Math.max(1, Math.ceil(all.length / size));
   const p = Math.min(Math.max(1, Math.floor(page) || 1), totalPages);
@@ -412,6 +551,8 @@ export function getLeaderboard(page: number, pageSize: number, selfId: string): 
     page: p,
     pageSize: size,
     totalPages,
+    humansTotal,
+    botsTotal,
   };
 }
 
@@ -649,7 +790,8 @@ export function sellAllToVendor(userId: string): MarketOpResult {
   try {
     const upd = db.prepare('UPDATE items SET user_id = ?, inv_x = NULL, inv_y = NULL WHERE id = ?');
     for (const r of rows) {
-      total += Math.round(Number(r.value) * bonus);
+      // sellAllToVendor — та же ставка торговца, что и при продаже по одному
+      total += Math.max(1, Math.round(Number(r.value) * VENDOR_RATE * bonus));
       upd.run(HOUSE_ID, String(r.id));
     }
     db.prepare('UPDATE users SET cash = cash + ? WHERE id = ?').run(total, userId);
@@ -679,9 +821,14 @@ export function sellToVendor(userId: string, itemId: string): MarketOpResult {
   const listed = db.prepare('SELECT 1 AS e FROM market_listings WHERE item_id = ?').get(itemId);
   if (listed) return { ok: false, error: 'Сначала снимите предмет с барахолки' };
   const value = Number(item.value);
-  // сет «Тёплый очаг»: торговец покупает на 5% дороже номинала
+  // Торговец платит долю номинала: мгновенная продажа не должна быть выгоднее
+  // барахолки, иначе игроки не торгуют между собой. Сет «Тёплый очаг» даёт +5%.
   const bonuses = getActiveSetBonuses(userId);
-  const sellValue = bonuses.includes('trader_bonus') ? Math.round(value * 1.05) : value;
+  const rate = VENDOR_RATE * (bonuses.includes('trader_bonus') ? 1.05 : 1);
+  const sellValue = Math.max(1, Math.round(value * rate));
+  if (!houseCanAfford(sellValue)) {
+    return { ok: false, error: 'Торговец не может расплатиться: банк дома пуст' };
+  }
   db.exec('BEGIN');
   try {
     // предмет переходит в собственность дома, дом платит номинал
@@ -741,6 +888,19 @@ export function finalizeGame(report: FinalReport): void {
     }
     db.prepare('UPDATE users SET games_played = games_played + 1 WHERE id IN (SELECT user_id FROM game_players WHERE game_id = ?)').run(report.gameId);
     db.prepare('UPDATE users SET games_won = games_won + 1 WHERE id = ?').run(report.winnerId);
+    // Прогрессия: копим итог партий и ведём серию побед.
+    // Итог может быть отрицательным — он показывает карьерный результат,
+    // а не текущий кошелёк, поэтому серия проигрышей не откатывает ранг.
+    for (const st of report.standings) {
+      const won = st.playerId === report.winnerId;
+      const profit = report.profit[st.playerId] ?? 0;
+      db.prepare(
+        'UPDATE users SET total_winnings = total_winnings + ?, ' +
+          'current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END, ' +
+          'best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE best_streak END) ' +
+          'WHERE id = ?',
+      ).run(profit, won ? 1 : 0, won ? 1 : 0, st.playerId);
+    }
     if (report.antePot > 0) {
       houseAdjust(report.antePot, 'ante', null, 'Вступительные ставки партии ' + report.code);
     }
@@ -765,6 +925,24 @@ function houseAdjust(amount: number, type: string, partyUserId: string | null, n
   db.prepare(
     'INSERT INTO bank_transactions (id, at, type, amount, balance_after, party_user_id, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ).run(crypto.randomUUID(), Date.now(), type, amount, h?.cash ?? 0, partyUserId, note);
+}
+
+/**
+ * Может ли банк дома позволить себе выплату.
+ *
+ * Раньше банк мог молча уйти в минус: стартовые капиталы и покупки у торговца
+ * списывались даже при нулевом балансе. В итоге на живой базе банк оказался
+ * должен 65 млн, то есть деньги просто печатались. Теперь выплаты, которые
+ * банк не может покрыть, отклоняются — экономика деградирует явно, а не тихо.
+ */
+export function houseCanAfford(amount: number): boolean {
+  const house = getUserById(HOUSE_ID);
+  return (house?.cash ?? 0) >= amount;
+}
+
+/** Баланс банка дома (для проверок и админки) */
+export function houseBalance(): number {
+  return getUserById(HOUSE_ID)?.cash ?? 0;
 }
 
 /** Создать аккаунт дома с начальным капиталом (один раз) */

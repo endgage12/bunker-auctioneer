@@ -1,5 +1,5 @@
 <template>
-  <header class="sticky top-0 z-40 bg-slate-950/90 backdrop-blur border-b border-slate-800">
+  <header ref="navRoot" class="sticky top-0 z-40 bg-slate-950/90 backdrop-blur border-b border-slate-800">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-2">
       <!-- мобильное меню: Sheet от shadcn (портал в body, поверх всего, на всю высоту) -->
       <Sheet v-model:open="menuOpen">
@@ -139,6 +139,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { gsap, motionOK } from '../lib/animations';
 import { useRouter } from 'vue-router';
 import CoinAmount from './CoinAmount.vue';
 import { useAuthStore } from '../stores/auth';
@@ -150,6 +151,7 @@ import SheetHeader from './ui/sheet/SheetHeader.vue';
 import SheetTitle from './ui/sheet/SheetTitle.vue';
 
 const auth = useAuthStore();
+const navRoot = ref<HTMLElement | null>(null);
 const game = useGameStore();
 const router = useRouter();
 

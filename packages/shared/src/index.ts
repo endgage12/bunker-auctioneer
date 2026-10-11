@@ -6,3 +6,4 @@ export * from './bank';
 export * from './sets';
 export * from './santa';
 export * from './cards';
+export * from './bots';

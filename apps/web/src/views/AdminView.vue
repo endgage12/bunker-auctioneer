@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen">
+  <div ref="rootEl" class="min-h-screen">
     <TopNav />
     <div v-if="bank" class="max-w-5xl mx-auto p-6">
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -84,7 +84,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="t in txPage.transactions" :key="t.id" class="border-t border-slate-800">
+                <tr v-for="t in txPage.transactions" :key="t.id" data-tx-row class="border-t border-slate-800">
                   <td class="py-1.5 pr-4 text-xs text-slate-400">{{ timeOf(t.at) }}</td>
                   <td class="py-1.5 pr-4">{{ txLabel(t.type) }}</td>
                   <td class="py-1.5 pr-4 text-slate-400">{{ t.partyName ?? '—' }}</td>
@@ -131,6 +131,7 @@ import { useRouter } from 'vue-router';
 import { BANK_TX_LABELS } from '@auctioneer/shared';
 import type { AdminBank, BankTxPage } from '@auctioneer/shared';
 import { get, post } from '../lib/api';
+import { motionOK, staggerIn } from '../lib/animations';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
@@ -138,6 +139,7 @@ import ItemCard from '../components/ItemCard.vue';
 import CoinAmount from '../components/CoinAmount.vue';
 
 const auth = useAuthStore();
+const rootEl = ref<HTMLElement | null>(null);
 const game = useGameStore();
 const router = useRouter();
 
@@ -148,7 +150,19 @@ const transferEmail = ref('');
 const transferAmount = ref(0);
 const housePrices = reactive<Record<string, number>>({});
 
+/** Каскадное появление панелей админки и строк журнала */
+function animateAdmin(): void {
+  if (!motionOK || !rootEl.value) return;
+  void Promise.resolve().then(() => {
+    const panels = rootEl.value?.querySelectorAll('.panel');
+    if (panels && panels.length) staggerIn(panels, { stagger: 0.06, y: 12, duration: 0.3 });
+    const rows = rootEl.value?.querySelectorAll('[data-tx-row]');
+    if (rows && rows.length) staggerIn(rows, { stagger: 0.02, y: 8, duration: 0.24, delay: 0.15 });
+  });
+}
+
 onMounted(async () => {
+  animateAdmin();
   try {
     const profile = await auth.fetchMe();
     if (!profile.isAdmin) {

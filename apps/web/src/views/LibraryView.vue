@@ -68,7 +68,7 @@
               <span>{{ s.title }}</span>
             </h2>
 
-            <div v-for="a in sectionArticles(s)" :key="a.id" class="panel mb-3 overflow-hidden">
+            <div v-for="a in sectionArticles(s)" :key="a.id" data-article-card class="panel mb-3 overflow-hidden">
               <button class="w-full flex items-center gap-3 text-left px-4 py-3" @click="toggle(a.id)">
                 <span class="flex-1 font-semibold text-sm" v-html="highlightHtml(a.title, normQuery)"></span>
                 <span
@@ -79,7 +79,7 @@
                 </span>
               </button>
 
-              <div v-if="isOpen(a.id)" class="px-4 pb-4 border-t border-slate-800 pt-3 space-y-3">
+              <div v-if="isOpen(a.id)" :data-article-body="a.id" class="px-4 pb-4 border-t border-slate-800 pt-3 space-y-3">
                 <template v-for="(b, bi) in a.blocks" :key="bi">
                   <p
                     v-if="b.kind === 'p'"
@@ -166,6 +166,7 @@ import type { ItemDef } from '@auctioneer/shared';
 import { RARITY_HEX } from '../lib/rarity';
 import { itemIconUrl } from '../lib/items';
 import { LIBRARY_SECTIONS, articleSearchText } from '../lib/library';
+import { gsap, motionOK, staggerIn } from '../lib/animations';
 import type { LibraryArticle, LibrarySection } from '../lib/library';
 import TopNav from '../components/TopNav.vue';
 import CoinAmount from '../components/CoinAmount.vue';
@@ -211,14 +212,44 @@ function isOpen(id: string): boolean {
 function toggle(id: string): void {
   if (searching.value) return;
   const next = new Set(openIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
+  const opening = !next.has(id);
+  if (opening) next.add(id);
+  else next.delete(id);
   openIds.value = next;
+  if (opening) animateArticleOpen(id);
+}
+
+/**
+ * Раскрытие статьи: содержимое «проявляется» каскадом, а не появляется рывком.
+ * Ждём отрисовки, потому что блок создаётся через v-if.
+ */
+function animateArticleOpen(id: string): void {
+  if (!motionOK) return;
+  void Promise.resolve().then(() => {
+    const body = document.querySelector('[data-article-body="' + id + '"]');
+    if (!body) return;
+    gsap.from(body.children, {
+      y: 8,
+      opacity: 0,
+      duration: 0.28,
+      stagger: 0.035,
+      ease: 'power2.out',
+    });
+  });
+}
+
+/** Каскадное появление списка статей при смене раздела */
+function animateArticleList(): void {
+  if (!motionOK) return;
+  const items = document.querySelectorAll('[data-article-card]');
+  if (items.length === 0) return;
+  staggerIn(items, { stagger: 0.03, y: 10, duration: 0.26 });
 }
 
 function scrollToSection(id: string): void {
   const el = document.getElementById('sec-' + id);
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  animateArticleList();
 }
 
 function onScroll(): void {

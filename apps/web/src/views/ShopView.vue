@@ -77,9 +77,9 @@
             Чем сильнее карточка — тем меньше шанс её выпадения.
           </p>
 
-          <div class="relative wheel-stage" :class="{ 'is-spinning': spinning }">
+          <div ref="stageEl" class="relative wheel-stage" :class="{ 'is-spinning': spinning }">
             <!-- стрелка-указатель -->
-            <div class="wheel-pointer">
+            <div ref="arrowEl" class="wheel-pointer">
               <div class="wheel-pointer-shape"></div>
             </div>
             <!-- вращающаяся часть -->
@@ -89,8 +89,9 @@
                 <circle :cx="C" :cy="C" :r="RIM_R + 6" fill="#0f172a" stroke="#334155" stroke-width="3" />
                 <!-- секторы -->
                 <path
-                  v-for="seg in segments"
+                  v-for="(seg, si) in segments"
                   :key="seg.card.id"
+                  :ref="(el) => setSegmentEl(el as Element | null, si)"
                   :d="seg.path"
                   :fill="seg.color"
                   stroke="#0f172a"
@@ -171,7 +172,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import gsap from 'gsap';
+import { gsap, motionOK } from '../lib/animations';
 import { CARD_SETS, CARD_DEFS, WHEEL_SEGMENTS, WHEEL_SPIN_MS, cardChance } from '@auctioneer/shared';
 import type { CardDef } from '@auctioneer/shared';
 import { get, post } from '../lib/api';
@@ -205,6 +206,12 @@ const game = useGameStore();
 const state = ref<ShopState | null>(null);
 const spinning = ref(false);
 const rotorEl = ref<HTMLElement | null>(null);
+const stageEl = ref<HTMLElement | null>(null);
+const arrowEl = ref<HTMLElement | null>(null);
+const segmentEls = ref<HTMLElement[]>([]);
+function setSegmentEl(el: Element | null, i: number): void {
+  if (el) segmentEls.value[i] = el as HTMLElement;
+}
 const result = ref<SpinResponse | null>(null);
 
 const vaseIcon = itemIconUrl('white-0');
@@ -357,6 +364,10 @@ async function spin(): Promise<void> {
     const idx = WHEEL_SEGMENTS.findIndex((c) => c.id === resp.cardId);
     const jitter = (Math.random() * 2 - 1) * 13;
     const target = rot.v + rotationToSegment(idx, 5, jitter);
+    // Рывок сцены на старте и затухающая тряска — ощущение физического толчка
+    if (motionOK && stageEl.value) {
+      gsap.fromTo(stageEl.value, { scale: 1 }, { scale: 0.965, duration: 0.16, yoyo: true, repeat: 1, ease: 'power2.inOut' });
+    }
     tween = gsap.to(rot, {
       v: target,
       duration: WHEEL_SPIN_MS / 1000,
@@ -366,6 +377,20 @@ async function spin(): Promise<void> {
         spinning.value = false;
         // выигрыш показываем только после остановки колеса — сохраняем интригу
         result.value = resp;
+        // «щелчок» стрелки и вспышка выигравшего сектора
+        if (motionOK) {
+          if (arrowEl.value) {
+            gsap.fromTo(arrowEl.value, { y: -4 }, { y: 0, duration: 0.5, ease: 'elastic.out(1, 0.35)' });
+          }
+          const seg = segmentEls.value[idx];
+          if (seg) {
+            gsap.fromTo(
+              seg,
+              { opacity: 0.35 },
+              { opacity: 1, duration: 0.22, yoyo: true, repeat: 3, ease: 'power2.inOut' },
+            );
+          }
+        }
       },
     });
   } catch (e) {

@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen">
+  <div ref="rootEl" class="min-h-screen">
     <TopNav />
     <div class="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
       <!-- Мой инвентарь -->
@@ -102,6 +102,8 @@
           <div
             v-for="l in filteredListings"
             :key="l.id"
+            :data-lot-row="l.id"
+            :data-lot="l.id"
             class="flex items-center gap-3 px-2 py-2 rounded-lg bg-slate-800/40"
           >
             <div class="w-14 h-14 rounded overflow-hidden shrink-0">
@@ -198,6 +200,7 @@ import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import { RARITY_HEX } from '../lib/rarity';
 import TopNav from '../components/TopNav.vue';
+import { gsap, motionOK, staggerIn } from '../lib/animations';
 import ItemCard from '../components/ItemCard.vue';
 import CoinAmount from '../components/CoinAmount.vue';
 import Dialog from '../components/ui/dialog/Dialog.vue';
@@ -210,6 +213,8 @@ const game = useGameStore();
 
 const profile = ref<Profile | null>(null);
 const listings = ref<MarketListing[]>([]);
+/** корневой узел: нужен как область для анимаций */
+const rootEl = ref<HTMLElement | null>(null);
 const hideout = ref<HideoutState | null>(null);
 const history = ref<MarketHistoryEntry[]>([]);
 const dialogOpen = ref(false);
@@ -286,11 +291,29 @@ async function listItem(itemId: string): Promise<void> {
   }
 }
 
+/** Каскадное появление списка лотов при обновлении */
+function animateRows(): void {
+  if (!motionOK) return;
+  const rows = rootEl.value?.querySelectorAll('[data-lot-row]');
+  if (!rows || rows.length === 0) return;
+  staggerIn(rows, { stagger: 0.025, y: 10, duration: 0.28 });
+}
+
 async function buyLot(listingId: string): Promise<void> {
   try {
+    // лот «улетает» влево — в сторону блока инвентаря
+    if (motionOK) {
+      const row = rootEl.value?.querySelector('[data-lot="' + listingId + '"]');
+      if (row) {
+        await new Promise<void>((resolve) => {
+          gsap.to(row, { x: -40, opacity: 0, scale: 0.9, duration: 0.3, ease: 'power2.in', onComplete: () => resolve() });
+        });
+      }
+    }
     await post('/api/market/buy', { listingId });
-    game.pushToast('Покупка совершена — предмет в инвентаре');
     await refresh();
+    animateRows();
+    game.pushToast('Покупка совершена — предмет в инвентаре');
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }
@@ -299,8 +322,9 @@ async function buyLot(listingId: string): Promise<void> {
 async function cancelLot(listingId: string): Promise<void> {
   try {
     await post('/api/market/cancel', { listingId });
-    game.pushToast('Лот снят — предмет возвращён в инвентарь');
     await refresh();
+    animateRows();
+    game.pushToast('Лот снят — предмет возвращён в инвентарь');
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }

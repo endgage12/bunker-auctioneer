@@ -1,9 +1,10 @@
 <template>
   <!-- Компактный вид для мобильной игры: горизонтальная лента игроков -->
-  <div v-if="compact" class="flex gap-1.5 overflow-x-auto pb-0.5 -mx-0.5 px-0.5">
+  <div v-if="compact" :ref="setRootEl" class="flex gap-1.5 overflow-x-auto pb-0.5 -mx-0.5 px-0.5">
     <a
       v-for="p in game.players"
       :key="p.id"
+      :data-player-row="p.id"
       :href="'#/profile/' + p.id"
       target="_blank"
       rel="noopener"
@@ -23,8 +24,8 @@
           <span v-if="p.isHost" class="text-amber-300">★</span>
         </div>
         <div class="text-[10px] font-mono text-slate-400 leading-tight flex items-center gap-1">
-          <CoinAmount :value="p.cash" />
-          <template v-if="p.ante > 0 && (game.phase === 'betting' || game.phase === 'auction')">
+          <CoinAmount :value="p.cash" animate />
+          <template v-if="p.ante > 0 && (game.phase === 'ready' || game.phase === 'auction')">
             <span class="text-amber-200/80">· <CoinAmount :value="p.ante" /></span>
           </template>
         </div>
@@ -42,10 +43,11 @@
   <!-- Полный список -->
   <div v-else class="panel">
     <h3 class="text-sm font-semibold mb-2">Игроки</h3>
-    <div class="flex flex-col gap-1.5">
+    <div :ref="setRootEl" class="flex flex-col gap-1.5">
       <div
         v-for="p in game.players"
         :key="p.id"
+        :data-player-row="p.id"
         class="flex items-center gap-2 px-2 py-1.5 rounded-lg"
         :class="p.id === meId ? 'bg-slate-800/80' : 'bg-slate-800/40'"
       >
@@ -69,10 +71,10 @@
             <span v-if="!p.online" class="text-[9px] px-1 rounded bg-rose-500/20 text-rose-300">офлайн</span>
           </div>
           <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1">
-            <CoinAmount :value="p.cash" />
+            <CoinAmount :value="p.cash" animate />
             <span class="text-slate-600">· инв: <CoinAmount :value="p.inventoryValue" /></span>
           </div>
-          <div v-if="game.phase === 'betting' || game.phase === 'auction'" class="text-[10px] text-slate-500">
+          <div v-if="game.phase === 'ready' || game.phase === 'auction'" class="text-[10px] text-slate-500">
             ставка: <span class="text-amber-200/80"><CoinAmount :value="p.ante" /></span>
           </div>
         </div>
@@ -90,7 +92,42 @@
 
 <script setup lang="ts">
 import CoinAmount from './CoinAmount.vue';
+import { onMounted, ref, watch } from 'vue';
+import { gsap, motionOK } from '../lib/animations';
 import type { PublicGame, PublicPlayer } from '@auctioneer/shared';
+
+/** корневой узел: область для анимаций */
+const rootEl = ref<HTMLElement | null>(null);
+/** ref-функция: в v-if-ветках одноимённый ref собирается в массив */
+function setRootEl(el: Element | { $el?: Element } | null): void {
+  if (!el) return;
+  // может прийти компонент — берём его корневой элемент
+  const node = (el as { $el?: Element }).$el ?? (el as Element);
+  if (node instanceof HTMLElement) rootEl.value = node;
+}
+/** кого уже показывали — новым игрокам даём отдельную анимацию */
+const seen = new Set<string>();
+
+/**
+ * Подсвечиваем игроков, которые только что появились в комнате:
+ * в лобби это заметное событие — стол собирается на глазах.
+ */
+function animatePlayers(): void {
+  if (!motionOK || !rootEl.value) return;
+  const rows = rootEl.value.querySelectorAll<HTMLElement>('[data-player-row]');
+  rows.forEach((row) => {
+    const id = row.dataset.playerRow ?? '';
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    gsap.fromTo(row, { x: -14, opacity: 0 }, { x: 0, opacity: 1, duration: 0.4, ease: 'back.out(1.6)' });
+  });
+}
+
+watch(
+  () => props.game.players.map((p) => p.id).join('|'),
+  () => void Promise.resolve().then(animatePlayers),
+);
+onMounted(animatePlayers);
 
 const props = withDefaults(defineProps<{ game: PublicGame; meId: string; compact?: boolean }>(), {
   compact: false,
@@ -111,7 +148,7 @@ function statusOf(p: PublicPlayer): { text: string; cls: string } {
       ? { text: 'готов', cls: 'bg-emerald-500/20 text-emerald-300' }
       : { text: '', cls: '' };
   }
-  if (g.phase === 'betting') {
+  if (g.phase === 'ready') {
     return p.ante > 0
       ? { text: 'поставил', cls: 'bg-emerald-500/20 text-emerald-300' }
       : { text: 'думает', cls: 'bg-slate-700/40 text-slate-300' };

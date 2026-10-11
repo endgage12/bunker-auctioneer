@@ -1,14 +1,7 @@
 // Тесты особых карточек: каталог и веса колеса фортуны (shared) +
 // карточки-анализаторы в движке партии (личные, только для владельца).
 import { describe, expect, it } from 'vitest';
-import {
-  CARD_DEFS,
-  CARD_SETS,
-  cardChance,
-  findCard,
-  mulberry32,
-  pickCardByWeight,
-} from '@auctioneer/shared';
+import {CARD_DEFS, CARD_SETS, cardChance, findCard, mulberry32, pickCardByWeight} from '@auctioneer/shared';
 import { Game } from '../src/game/engine';
 import type { EnginePlayerSeed, GameOptions } from '../src/game/engine';
 import type { ItemInstance } from '@auctioneer/shared';
@@ -25,7 +18,7 @@ function seed(id: string, cash: number, items: ItemInstance[]): EnginePlayerSeed
 
 function makeGame(players: EnginePlayerSeed[], opts: Partial<GameOptions> = {}): Game {
   const g = new Game({ id: 'g1', code: 'TEST', hostId: players[0].id, players, now: () => 0, ...opts });
-  for (const p of players) g.submitAnte(p.id, 100_000);
+  for (const p of players) g.confirmEntry(p.id);
   g.advance(); // лок ставок -> аукцион со скрытым столом
   return g;
 }
@@ -95,14 +88,20 @@ describe('анализаторы в движке партии', () => {
     const privB = g.personalSnapshot('b');
     expect(privA?.rarityHints.length).toBe(2);
     expect(privB).toBeNull();
-    // подсказки ссылаются на закрытые клетки стола (у закрытых клеток есть itemId)
+    // Подсказки ссылаются на закрытые клетки стола. Стол теперь бывает
+    // небольшим, и раунд 1 может уже раскрыть часть предметов — поэтому
+    // проверяем только те подсказки, что указывают на СКРЫТЫЕ предметы.
     const snap = g.snapshot();
+    let hiddenHints = 0;
     for (const h of privA!.rarityHints) {
       const cells = snap.board.cells.filter((c) => c.kind === 'closed' && c.itemId === h.itemId);
-      expect(cells.length).toBeGreaterThan(0);
-      // предмет остаётся скрытым в публичном снимке
+      if (cells.length === 0) continue;
+      hiddenHints += 1;
+      // такой предмет остаётся скрытым в публичном снимке
       expect(snap.items.find((i) => i.id === h.itemId)?.revealed).toBe(false);
     }
+    // стол достаточно большой, чтобы хотя бы часть подсказок пришлась на скрытое
+    expect(hiddenHints).toBeGreaterThan(0);
   });
 
   it('подсказки накапливаются и не уходят другим игрокам', () => {

@@ -3,15 +3,17 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { config } from './config';
 import * as db from './db';
-import { authRequired, consumeOauthState, exchangeGoogleCode, googleAuthUrl, signToken } from './auth';
+import { authRequired, consumeOauthState, exchangeGoogleCode, googleAuthUrl, passwordAccounts, registerFailedLogin, resetLoginAttempts, safeEqual, signToken } from './auth';
 import type { AuthRequest } from './auth';
 import { manager } from './game/manager';
+import { botPool } from './bots/pool';
 
 export function createRestRouter(): Router {
   const r = Router();
 
   r.get('/api/health', (_req, res) => {
-    res.json({ ok: true });
+    // allowDevLogin нужен клиенту, чтобы не показывать тестовые кнопки в проде
+    res.json({ ok: true, allowDevLogin: config.allowDevLogin, googleOAuth: !!config.googleClientId });
   });
 
   r.get('/api/me', authRequired, (req, res) => {
@@ -47,7 +49,19 @@ export function createRestRouter(): Router {
   r.get('/api/leaderboard', authRequired, (req, res) => {
     const userId = (req as AuthRequest).userId ?? '';
     const q = req.query as Record<string, string | undefined>;
-    res.json(db.getLeaderboard(Number(q.page ?? 1), Number(q.pageSize ?? 30), userId));
+    // includeBots=0 — топ только из живых игроков (боты по умолчанию показываются)
+    const includeBots = q.includeBots !== '0' && q.includeBots !== 'false';
+    res.json(db.getLeaderboard(Number(q.page ?? 1), Number(q.pageSize ?? 30), userId, includeBots));
+  });
+
+  /** Витрина залов: сколько игроков ждёт в каждом зале (для главного экрана) */
+  r.get('/api/rooms/tiers', authRequired, (_req, res) => {
+    res.json(manager.listRoomsByTier());
+  });
+
+  /** Состояние парка ботов и метрики матчмейкинга (для отладки и контроля SLA) */
+  r.get('/api/bots/stats', authRequired, (_req, res) => {
+    res.json({ ...botPool.stats(), matchmaking: botPool.metrics(), phases: botPool.debugBreakdown() });
   });
 
   // история матчей игрока (вложения и разница по каждой партии)
@@ -281,6 +295,38 @@ export function createRestRouter(): Router {
       return;
     }
     const user = db.findOrCreateAdminUser();
+    void signToken(user.id).then((token) => {
+      res.json({ token, profile: db.getProfile(user.id) });
+    });
+  });
+
+  /**
+   * Вход по паролю для личных аккаунтов (кнопка «Войти как shlepafloppa»).
+   * Пароль сравнивается ТОЛЬКО на сервере (значение из env), в клиент не попадает.
+   * Неудачные попытки throttl'ятся, чтобы пароль нельзя было подобрать перебором.
+   */
+  r.post('/api/auth/password-login', (req, res) => {
+    if (!config.allowDevLogin) {
+      res.status(403).json({ error: 'Вход по паролю отключён (ALLOW_DEV_LOGIN=false)' });
+      return;
+    }
+    const key = String(req.ip ?? 'unknown') + '|password-login';
+    const body = (req.body ?? {}) as { account?: string; password?: string };
+    const wanted = String(body.account ?? '').trim().toLowerCase();
+    const password = String(body.password ?? '');
+    const account = passwordAccounts().find((a) => a.email === wanted || a.name.toLowerCase() === wanted);
+    // верный пароль проверяем первым: иначе перебором можно было бы запереть владельца аккаунта
+    const ok = !!account && safeEqual(password, account.password);
+    if (!ok) {
+      // аккаунт не найден — считаем так же, как неверный пароль (не подсказываем, что логин верный)
+      const delay = registerFailedLogin(key);
+      setTimeout(() => {
+        res.status(401).json({ error: 'Неверный пароль' });
+      }, Math.min(delay, 3000));
+      return;
+    }
+    resetLoginAttempts(key);
+    const user = db.findOrCreatePersonalUser(account.email, account.name);
     void signToken(user.id).then((token) => {
       res.json({ token, profile: db.getProfile(user.id) });
     });

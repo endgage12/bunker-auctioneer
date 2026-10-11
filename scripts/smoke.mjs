@@ -225,9 +225,16 @@ async function main() {
     // банк дома: баланс и журнал (в журнале уже есть операции торговца)
     const bank0 = await api('/api/admin/bank', { headers: adminH });
     if (typeof bank0.balance !== 'number') throw new Error('нет баланса банка');
-    if (!bank0.transactions.some((t) => t.type === 'vendor')) throw new Error('нет операции торговца в журнале');
-    if (!bank0.transactions.some((t) => t.type === 'game')) throw new Error('нет операции дохода партии в журнале');
-    log('  банк дома: ' + bank0.balance.toLocaleString('ru-RU') + ', операций в журнале: ' + bank0.transactions.length);
+    // журнал операций отдаётся отдельной пагинированной ручкой
+    const txPage0 = await api('/api/admin/bank/transactions?page=1&pageSize=200', { headers: adminH });
+    const tx0 = txPage0.transactions;
+    if (!Array.isArray(tx0)) throw new Error('журнал банка: нет массива transactions');
+    if (!tx0.some((t) => t.type === 'vendor')) throw new Error('нет операции торговца в журнале');
+    if (!tx0.some((t) => t.type === 'game')) throw new Error('нет операции дохода партии в журнале');
+    if (typeof txPage0.total !== 'number' || txPage0.total < tx0.length) {
+      throw new Error('журнал банка: некорректный total');
+    }
+    log('  банк дома: ' + bank0.balance.toLocaleString('ru-RU') + ', операций в журнале: ' + txPage0.total);
 
     // пополнение банка
     await api('/api/admin/bank/deposit', { method: 'POST', headers: adminH, body: JSON.stringify({ amount: 100000 }) });

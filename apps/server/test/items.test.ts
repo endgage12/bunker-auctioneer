@@ -1,13 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  generateItem,
-  generateStarterPack,
-  ITEM_CATALOG,
-  itemsTotal,
-  mulberry32,
-  STARTER_PACK_MAX,
-  STARTER_PACK_MIN,
-} from '@auctioneer/shared';
+import {generateItem, generateStarterPack, ITEM_CATALOG, itemsTotal, mulberry32, STARTER_PACK_MAX, STARTER_PACK_MIN} from '@auctioneer/shared';
 
 describe('генерация предметов', () => {
   it('стартовый набор всегда стоит ~300k', () => {

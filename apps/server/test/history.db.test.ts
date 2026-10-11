@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { mulberry32 } from '@auctioneer/shared';
+import {mulberry32} from '@auctioneer/shared';
 import { Game } from '../src/game/engine';
 import type { FinalReport } from '../src/game/engine';
 
@@ -44,8 +44,8 @@ describe('История матчей: хранилище', () => {
       now: () => Date.now(),
       onFinished: (r) => reports.push(r),
     });
-    g.submitAnte(a.id, 10_000);
-    g.submitAnte(b.id, 10_000);
+    g.confirmEntry(a.id);
+    g.confirmEntry(b.id);
     g.advance(); // лок ставок
     g.advance(); // reveal -> bid
     g.submitBid(a.id, 5_000); // победа в 1-м раунде (5 000 >= 2 × 2 000)
@@ -108,8 +108,8 @@ describe('История матчей: хранилище', () => {
         now: () => Date.now(),
         onFinished: (r) => reports.push(r),
       });
-      g.submitAnte(a.id, 10_000);
-      g.submitAnte(b.id, 10_000);
+      g.confirmEntry(a.id);
+      g.confirmEntry(b.id);
       g.advance();
       g.advance();
       g.submitBid(a.id, 5_000);

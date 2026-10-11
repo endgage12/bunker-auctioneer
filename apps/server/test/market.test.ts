@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MARKET_FEE_PCT, marketFee } from '@auctioneer/shared';
+import {MARKET_FEE_PCT, marketFee} from '@auctioneer/shared';
 
 describe('барахолка: комиссия', () => {
   it('считается с округлением вниз', () => {

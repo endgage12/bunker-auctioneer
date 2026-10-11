@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen">
+  <div ref="rootEl" class="min-h-screen">
     <TopNav />
     <div class="max-w-6xl mx-auto p-6">
       <div class="flex items-end justify-between mb-6">
@@ -46,6 +46,7 @@ import { get, post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
+import { gsap, motionOK, shake } from '../lib/animations';
 import SetCard from '../components/SetCard.vue';
 
 const auth = useAuthStore();
@@ -53,6 +54,7 @@ const game = useGameStore();
 
 const hideout = ref<HideoutState | null>(null);
 const profile = ref<Profile | null>(null);
+const rootEl = ref<HTMLElement | null>(null);
 
 const inventory = computed<InventoryRow[]>(() => profile.value?.inventory ?? []);
 
@@ -84,8 +86,27 @@ async function refresh(): Promise<void> {
 async function place(setId: string, itemId: string): Promise<void> {
   try {
     await post('/api/hideout/place', { setId, itemId });
-    game.pushToast('Предмет поставлен в витрину');
     await refresh();
+    // предмет «встаёт» в витрину с подсветкой активации сета
+    if (motionOK) {
+      const card = rootEl.value?.querySelector('[data-set="' + setId + '"]');
+      const slot = card?.querySelector('.set-slot-filled');
+      if (slot) {
+        gsap.fromTo(
+          slot,
+          { scale: 0.6, opacity: 0 },
+          { scale: 1, opacity: 1, duration: 0.4, ease: 'back.out(2)' },
+        );
+      }
+      if (card) {
+        gsap.fromTo(
+          card,
+          { boxShadow: '0 0 0 0 rgba(52,211,153,0)' },
+          { boxShadow: '0 0 26px 3px rgba(52,211,153,0.5)', duration: 0.4, yoyo: true, repeat: 1 },
+        );
+      }
+    }
+    game.pushToast('Предмет поставлен в витрину');
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }
@@ -105,10 +126,30 @@ async function removeItem(itemId: string | undefined): Promise<void> {
 async function doTransmute(): Promise<void> {
   try {
     const r = await post<{ ok: boolean; item: InventoryRow }>('/api/hideout/transmute');
-    game.pushToast('Трансмутация: получен предмет «' + r.item.name + '»');
     await refresh();
+    // Алхимия: вспышка по карточкам сетов и «вылет» полученного предмета
+    if (motionOK) {
+      const cards = rootEl.value?.querySelectorAll('.panel') ?? [];
+      if (cards.length) {
+        gsap.fromTo(
+          cards,
+          { filter: 'brightness(1)' },
+          { filter: 'brightness(1.5)', duration: 0.25, yoyo: true, repeat: 2, stagger: 0.05 },
+        );
+      }
+      const fresh = rootEl.value?.querySelector('[data-fresh-item]');
+      if (fresh) {
+        gsap.fromTo(
+          fresh,
+          { scale: 0.5, opacity: 0, rotate: -12 },
+          { scale: 1, opacity: 1, rotate: 0, duration: 0.55, ease: 'back.out(2)' },
+        );
+      }
+    }
+    game.pushToast('Трансмутация: получен предмет «' + r.item.name + '»');
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
+    if (motionOK && rootEl.value) shake(rootEl.value);
   }
 }
 </script>

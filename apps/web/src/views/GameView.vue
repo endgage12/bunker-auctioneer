@@ -1,5 +1,5 @@
 <template>
-  <div v-if="game" class="game-shell flex flex-col">
+  <div v-if="game" ref="gameRoot" class="game-shell flex flex-col">
     <TopBar :game="game" @leave="leave" />
 
     <!-- Ожидание игроков -->
@@ -46,7 +46,7 @@
         </div>
         <p class="text-center text-xs text-slate-500">
           Полная стоимость стола:
-          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
+          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" animate /></b>
           · вот что скрывалось до конца игры
         </p>
       </div>
@@ -54,7 +54,7 @@
 
     <!-- Игра: стол и действия -->
     <div
-      v-else-if="game.phase === 'betting' || game.phase === 'auction'"
+      v-else-if="game.phase === 'ready' || game.phase === 'auction'"
       class="flex-1 min-h-0"
     >
       <!-- Десктоп: три колонки -->
@@ -69,8 +69,8 @@
       <main class="flex-1 min-w-0 flex flex-col min-h-0">
         <div class="panel mb-3 py-2 px-4 text-sm shrink-0">
           Текущая ожидаемая стоимость предметов на столе:
-          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
-          <span v-if="game.phase === 'betting'" class="text-slate-500 text-xs">
+          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" animate /></b>
+          <span v-if="game.phase === 'ready'" class="text-slate-500 text-xs">
             · стол уже сформирован — вступительная ставка открывает торги
           </span>
         </div>
@@ -91,7 +91,7 @@
       <!-- Правая колонка: особые карточки -->
       <aside class="w-80 shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
         <CardsPanel :phase="game.phase" />
-        <AntePanel v-if="game.phase === 'betting'" :game="game" :me-id="meId" @ante="onAnte" />
+        <AntePanel v-if="game.phase === 'ready'" :game="game" :me-id="meId" @ante="onAnte" />
         <AuctionPanel v-if="game.phase === 'auction'" :game="game" :me-id="meId" @bid="onBid" />
       </aside>
     </div>
@@ -102,8 +102,8 @@
         <!-- статусная строка -->
         <div class="panel py-1.5 px-3 text-xs shrink-0 flex items-center gap-x-3 gap-y-1 flex-wrap">
           <span class="text-slate-400">Стол:</span>
-          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" /></b>
-          <span v-if="game.phase === 'betting'" class="text-slate-600 ml-auto text-[11px]">
+          <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" animate /></b>
+          <span v-if="game.phase === 'ready'" class="text-slate-600 ml-auto text-[11px]">
             стол запечатан — сделайте вступительную ставку
           </span>
           <span v-else class="text-slate-600 ml-auto text-[11px] sm:hidden">
@@ -141,7 +141,7 @@
       >
         <div class="max-h-[45dvh] overflow-y-auto overscroll-contain flex flex-col gap-2">
           <CardsPanel v-if="game.phase === 'auction'" :phase="game.phase" />
-          <AntePanel v-if="game.phase === 'betting'" :game="game" :me-id="meId" @ante="onAnte" />
+          <AntePanel v-if="game.phase === 'ready'" :game="game" :me-id="meId" @ante="onAnte" />
           <AuctionPanel v-if="game.phase === 'auction'" :game="game" :me-id="meId" @bid="onBid" />
         </div>
       </footer>
@@ -190,7 +190,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ITEM_CATALOG } from '@auctioneer/shared';
 import type { Profile } from '@auctioneer/shared';
@@ -203,6 +203,7 @@ import DialogTitle from '../components/ui/dialog/DialogTitle.vue';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopBar from '../components/TopBar.vue';
+import { gsap, motionOK } from '../lib/animations';
 import BoardView from '../components/BoardView.vue';
 import PlayersPanel from '../components/PlayersPanel.vue';
 import AntePanel from '../components/AntePanel.vue';
@@ -212,6 +213,7 @@ import LogPanel from '../components/LogPanel.vue';
 import ResultModal from '../components/ResultModal.vue';
 
 const route = useRoute();
+const gameRoot = ref<HTMLElement | null>(null);
 const router = useRouter();
 const auth = useAuthStore();
 const gameStore = useGameStore();
@@ -222,6 +224,16 @@ const code = computed(() => String(route.params.code ?? ''));
 const joinError = ref('');
 
 const game = computed(() => gameStore.game);
+
+// переход «ожидание → партия»: стол проявляется, а не появляется рывком
+watch(
+  () => game.value?.phase,
+  (next, prev) => {
+    if (prev === 'waiting' && next && next !== 'waiting') {
+      void Promise.resolve().then(animateGameStart);
+    }
+  },
+);
 const meId = computed(() => auth.meId);
 const iAmReady = computed(() => game.value?.players.find((p) => p.id === meId.value)?.ready ?? false);
 
@@ -247,10 +259,10 @@ function onHiddenClick(rect: { x: number; y: number; w: number; h: number }): vo
 }
 
 const boardTitle = computed(() =>
-  game.value?.phase === 'betting' ? 'Игровой стол — ждём ставок' : 'Игровой стол',
+  game.value?.phase === 'ready' ? 'Игровой стол — ждём ставок' : 'Игровой стол',
 );
 const boardSubtitle = computed(() => {
-  if (game.value?.phase === 'betting') return 'сделайте вступительную ставку на панели';
+  if (game.value?.phase === 'ready') return 'сделайте вступительную ставку на панели';
   return 'нажмите на предмет, чтобы увидеть цену и детали';
 });
 
@@ -260,6 +272,17 @@ const tableRevealedValue = computed(() =>
     .filter((i) => i.revealed && i.value !== undefined)
     .reduce((s, i) => s + (i.value ?? 0), 0),
 );
+
+/**
+ * Старт партии: экран ожидания сменяется игровым столом. Мягко проявляем
+ * колонки, чтобы переход не был рывком.
+ */
+function animateGameStart(): void {
+  if (!motionOK || !gameRoot.value) return;
+  const cols = gameRoot.value.querySelectorAll('[data-game-col]');
+  if (cols.length === 0) return;
+  gsap.from(cols, { y: 16, opacity: 0, duration: 0.45, stagger: 0.08, ease: 'power2.out' });
+}
 
 onMounted(async () => {
   profile.value = await auth.fetchMe();
@@ -282,8 +305,8 @@ function goBack(): void {
   router.replace('/');
 }
 
-function onAnte(amount: number): void {
-  gameStore.ante(amount);
+function onAnte(): void {
+  gameStore.ante();
 }
 
 function onBid(amount: number): void {

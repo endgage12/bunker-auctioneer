@@ -1,17 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  generateSantaReward,
-  ITEM_CATALOG,
-  mulberry32,
-  RARITY_ORDER,
-  SANTA_MAX_REWARDS,
-  SANTA_MID_MAX,
-  SANTA_MID_MIN,
-  SANTA_MIN_ITEMS,
-  santaRewardCount,
-  santaRewardRarityWeights,
-  santaTimerMs,
-} from '@auctioneer/shared';
+import {generateSantaReward, ITEM_CATALOG, mulberry32, RARITY_ORDER, SANTA_MAX_REWARDS, SANTA_MID_MAX, SANTA_MID_MIN, SANTA_MIN_ITEMS, santaRewardCount, santaRewardRarityWeights, santaTimerMs} from '@auctioneer/shared';
 
 describe('Тайный Санта: минимальный вклад', () => {
   it('круг запускается только после 3 вложений (анти-абуз)', () => {

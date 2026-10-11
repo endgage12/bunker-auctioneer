@@ -75,7 +75,8 @@
             <div
               v-for="p in layout.items"
               :key="p.it.id"
-              class="inv-item rounded transition-all duration-200"
+              :ref="(el) => setItemEl(el as Element | null, p.it.id)"
+              class="inv-item rounded"
               :class="[itemClass(p.it), dragId === p.it.id ? 'opacity-60' : '']"
               :style="itemStyle(p)"
               :title="p.it.name + ' ' + p.it.w + 'x' + p.it.h + ' — ' + fmt(p.it.value)"
@@ -209,10 +210,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { fmt, INV_COLS, INV_ROWS, RARITY_LABEL, CARD_DEFS, CARD_SETS } from '@auctioneer/shared';
 import type { InventoryRow, ItemInstance, Profile } from '@auctioneer/shared';
 import { get, post } from '../lib/api';
+import { flipTransition, gsap, motionOK, shake } from '../lib/animations';
 import { useAuthStore } from '../stores/auth';
 import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
@@ -229,6 +231,20 @@ const PAD = 2;
 const profile = ref<Profile | null>(null);
 const query = ref('');
 const gridEl = ref<HTMLElement | null>(null);
+/** узлы предметов: нужны для FLIP при перестроении и при перетаскивании */
+const itemEls = new Map<string, HTMLElement>();
+function setItemEl(el: Element | null, id: string): void {
+  if (el) itemEls.set(id, el as HTMLElement);
+  else itemEls.delete(id);
+}
+/** снимок позиций перед перестроением — для FLIP-перелёта */
+function snapshotItems(): Element[] {
+  return [...itemEls.values()];
+}
+/** Плавный перелёт предметов на новые места (автосортировка, дроп, продажа) */
+function animateLayout(els: Element[], mutate: () => void): void {
+  flipTransition(els.length ? els : null, mutate);
+}
 const dragId = ref<string | null>(null);
 const hoverTarget = ref<{ x: number; y: number; w: number; h: number; ok: boolean } | null>(null);
 
@@ -240,6 +256,12 @@ interface OwnedCard {
 }
 
 const cards = ref<OwnedCard[]>([]);
+
+// при вводе поиска подсвечиваем найденное каскадом
+watch(query, (q) => {
+  if (!motionOK || q.trim().length < 2) return;
+  void Promise.resolve().then(pulseMatches);
+});
 const cardsLoaded = ref(false);
 const busyCard = ref<string | null>(null);
 const cardSets = CARD_SETS;
@@ -393,6 +415,23 @@ function itemStyle(p: PackedItem): Record<string, string> {
   };
 }
 
+/** Каскадный пульс по найденным предметам — видно, что именно нашлось */
+function pulseMatches(): void {
+  if (!query.value || query.value.trim().length < 2) return;
+  const found = [...itemEls.entries()]
+    .filter(([id]) => {
+      const it = inventory.value.find((i) => i.id === id);
+      return it ? it.name.toLowerCase().includes(query.value.trim().toLowerCase()) : false;
+    })
+    .map(([, el]) => el);
+  if (found.length === 0) return;
+  gsap.fromTo(
+    found,
+    { scale: 1 },
+    { scale: 1.06, duration: 0.2, yoyo: true, repeat: 1, stagger: 0.04, ease: 'power2.inOut' },
+  );
+}
+
 function itemClass(it: InventoryRow): string {
   if (!searching.value) return '';
   if (matches(it)) {
@@ -501,9 +540,14 @@ async function onDrop(): Promise<void> {
 
 async function autoSort(): Promise<void> {
   try {
+    const before = snapshotItems();
     await post('/api/items/sort');
+    const fresh = await auth.fetchMe();
+    // предметы «перелетают» на новые места, а не прыгают мгновенно
+    animateLayout(before, () => {
+      profile.value = fresh;
+    });
     game.pushToast('Инвентарь отсортирован');
-    profile.value = await auth.fetchMe();
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }
@@ -541,10 +585,20 @@ async function confirmList(): Promise<void> {
   const it = listItem.value;
   if (!it || !listPrice.value || listPrice.value < 1) return;
   try {
+    const el = itemEls.get(it.id);
+    if (el && motionOK) {
+      await new Promise<void>((resolve) => {
+        gsap.to(el, { x: 60, opacity: 0, scale: 0.8, duration: 0.3, ease: 'power2.in', onComplete: () => resolve() });
+      });
+    }
+    const before = snapshotItems();
     await post('/api/market/list', { itemId: it.id, price: Math.floor(listPrice.value) });
     listItem.value = null;
+    const fresh = await auth.fetchMe();
+    animateLayout(before, () => {
+      profile.value = fresh;
+    });
     game.pushToast('«' + it.name + '» выставлен на барахолку');
-    profile.value = await auth.fetchMe();
   } catch (err) {
     game.pushToast((err as Error).message, 'error');
   }
@@ -554,12 +608,32 @@ async function sellItem(): Promise<void> {
   const it = ctxMenu.value?.it;
   if (!it) return;
   closeMenu();
+  // предмет «улетает» из сетки, остальные перестраиваются перелётом
+  const el = itemEls.get(it.id);
+  if (el && motionOK) {
+    await new Promise<void>((resolve) => {
+      gsap.to(el, {
+        opacity: 0,
+        scale: 0.7,
+        y: -14,
+        filter: 'blur(2px)',
+        duration: 0.28,
+        ease: 'power2.in',
+        onComplete: () => resolve(),
+      });
+    });
+  }
   try {
+    const before = snapshotItems();
     const res = await post<{ ok: boolean; value?: number }>('/api/items/sell', { itemId: it.id });
+    const fresh = await auth.fetchMe();
+    animateLayout(before, () => {
+      profile.value = fresh;
+    });
     game.pushToast('Продано торговцу за ' + fmt(res.value ?? it.value));
-    profile.value = await auth.fetchMe();
   } catch (err) {
     game.pushToast((err as Error).message, 'error');
+    if (el) gsap.to(el, { opacity: 1, scale: 1, y: 0, filter: 'none', duration: 0.25 });
   }
 }
 

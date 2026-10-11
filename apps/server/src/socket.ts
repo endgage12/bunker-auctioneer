@@ -1,6 +1,6 @@
 // Socket.IO: комнаты, игровые действия, рассылка состояний
 import type { Server, Socket } from 'socket.io';
-import { C2S, S2C, AUTO_START_PLAYERS, MIN_PLAYERS, findCard } from '@auctioneer/shared';
+import { C2S, S2C, AUTO_START_PLAYERS, DEFAULT_TIER, MIN_PLAYERS, RANKS, findCard, getTier, tierUnlockedByRank } from '@auctioneer/shared';
 import * as db from './db';
 import { canJoin, manager, waitingSnapshot } from './game/manager';
 import type { Room } from './game/manager';
@@ -8,6 +8,8 @@ import { Game } from './game/engine';
 import type { EnginePlayerSeed } from './game/engine';
 import { verifyToken } from './auth';
 import { config } from './config';
+import { botPool } from './bots/pool';
+import { noteHumanServed } from './bots/metrics';
 
 let ioRef: Server;
 
@@ -24,16 +26,46 @@ interface SockLite {
   emit: (ev: string, payload: unknown) => void;
 }
 
+/**
+ * Безопасная обёртка над ack-колбэком.
+ *
+ * Socket.IO кладёт колбэк ПОСЛЕДНИМ аргументом, поэтому искать его нужно с конца:
+ * у события с payload колбэк лежит в args[1], у события без payload — в args[0].
+ * Если клиент вообще не передал колбэк, вызов `ack(...)` упал бы с
+ * «ack is not a function» и уронил процесс — на этот случай возвращаем пустышку.
+ */
+function ackOf<T>(...args: unknown[]): (resp: T) => void {
+  for (let i = args.length - 1; i >= 0; i--) {
+    if (typeof args[i] === 'function') return args[i] as (resp: T) => void;
+  }
+  return () => undefined;
+}
+
+/** Обработчик события: ошибка внутри не должна ронять сервер */
+function guard(name: string, fn: (...args: unknown[]) => void): (...args: unknown[]) => void {
+  return (...args: unknown[]) => {
+    try {
+      fn(...args);
+    } catch (err) {
+      console.error('[socket] ошибка в обработчике ' + name + ':', err);
+    }
+  };
+}
+
 function sendPersonalized(socket: SockLite, room: Room): void {
   const snap = roomSnap(room);
+  const userId = socket.data.userId as string;
+  // личная серия побед нужна клиенту, чтобы показать надбавку к призовым
+  const streak = db.getUserById(userId)?.currentStreak ?? 0;
+  const withStreak = { ...snap, myStreak: streak };
   if (room.game) {
-    const priv = room.game.personalSnapshot(socket.data.userId as string);
+    const priv = room.game.personalSnapshot(userId);
     if (priv) {
-      socket.emit(S2C.state, { ...snap, private: priv });
+      socket.emit(S2C.state, { ...withStreak, private: priv });
       return;
     }
   }
-  socket.emit(S2C.state, snap);
+  socket.emit(S2C.state, withStreak);
 }
 
 function broadcast(room: Room): void {
@@ -62,8 +94,7 @@ function withGame(socket: Socket, fn: (game: Game) => void): void {
 
 function startGame(room: Room): void {
   const playerBonuses: Record<string, string[]> = {};
-  const seeds: EnginePlayerSeed[] = [...room.members.values()].map((m) => {
-    const profile = db.getProfile(m.id);
+  const seeds: EnginePlayerSeed[] = [...room.members.values()].map((m) => {    const profile = db.getProfile(m.id);
     const bonuses = db.getActiveSetBonuses(m.id);
     playerBonuses[m.id] = bonuses;
     const cashBonus = bonuses.includes('start_cash_bonus') ? 1.1 : 1;
@@ -71,6 +102,7 @@ function startGame(room: Room): void {
       id: m.id,
       name: m.name,
       avatar: m.avatar,
+      streak: profile?.currentStreak ?? 0,
       cash: Math.round((profile?.cash ?? m.cash) * cashBonus),
       inventory: (profile?.inventory ?? []).map((i) => ({
         id: i.id,
@@ -88,6 +120,7 @@ function startGame(room: Room): void {
     code: room.code,
     hostId: room.hostId,
     players: seeds,
+    tier: room.tier,
     playerBonuses,
     bettingSeconds: config.gameTimings.betting,
     revealSeconds: config.gameTimings.reveal,
@@ -100,6 +133,10 @@ function startGame(room: Room): void {
   db.markItemsInGame(ids, game.id);
   room.game = game;
   room.state = 'game';
+  // метрика SLA: сколько игроки ждали лобби до старта партии
+  const hadHuman = [...room.members.keys()].some((id) => !db.isBotUser(id));
+  if (hadHuman) noteHumanServed();
+  botPool.recordWait(Date.now() - room.waitingSince, hadHuman);
   broadcast(room);
 }
 
@@ -138,35 +175,38 @@ export function attachSocket(io: Server): void {
   io.on('connection', (socket) => {
     const uid = socket.data.userId as string;
 
-    socket.on(C2S.createRoom, (ack?: (resp: { code: string } | { error: string }) => void) => {
+    socket.on(C2S.createRoom, guard('room:create', (...args: unknown[]) => {
+      const ack = ackOf<{ code: string } | { error: string }>(...args);
       const profile = db.getProfile(uid);
       if (!profile) {
-        ack?.({ error: 'Пользователь не найден' });
+        ack({ error: 'Пользователь не найден' });
         return;
       }
       const room = manager.createRoom({ id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash, ready: false });
       socket.data.roomCode = room.code;
       socket.join(chan(room));
       room.onUpdate = () => broadcast(room);
-      ack?.({ code: room.code });
+      ack({ code: room.code });
       broadcast(room);
       maybeAutoStart(room);
-    });
+    }));
 
-    socket.on(C2S.joinRoom, (code: string, ack?: (resp: { code: string } | { error: string }) => void) => {
-      const room = manager.getRoom(String(code ?? ''));
+    socket.on(C2S.joinRoom, guard('room:join', (...args: unknown[]) => {
+      const code = String(args[0] ?? '');
+      const ack = ackOf<{ code: string } | { error: string }>(...args);
+      const room = manager.getRoom(code);
       if (!room) {
-        ack?.({ error: 'Комната не найдена' });
+        ack({ error: 'Комната не найдена' });
         return;
       }
       const check = canJoin(room, uid);
       if (!check.ok) {
-        ack?.({ error: check.error ?? 'Нельзя войти' });
+        ack({ error: check.error ?? 'Нельзя войти' });
         return;
       }
       const profile = db.getProfile(uid);
       if (!profile) {
-        ack?.({ error: 'Пользователь не найден' });
+        ack({ error: 'Пользователь не найден' });
         return;
       }
       if (!room.members.has(uid)) {
@@ -176,28 +216,34 @@ export function attachSocket(io: Server): void {
       socket.join(chan(room));
       room.onUpdate = () => broadcast(room);
       room.game?.markOnline(uid, true);
-      ack?.({ code: room.code });
+      ack({ code: room.code });
       broadcast(room);
       maybeAutoStart(room);
-    });
+    }));
 
-    socket.on(C2S.play, (ack?: (resp: { code: string } | { error: string }) => void) => {
+    socket.on(C2S.play, guard('room:play', (...args: unknown[]) => {
+      const ack = ackOf<{ code: string } | { error: string }>(...args);
+      const body = (args[0] ?? {}) as { tier?: string };
       const profile = db.getProfile(uid);
       if (!profile) {
-        ack?.({ error: 'Пользователь не найден' });
+        ack({ error: 'Пользователь не найден' });
         return;
       }
+      // живой игрок ищет партию — метрика ожидания и приоритет для ботов
+      if (!db.isBotUser(uid)) botPool.noteHumanSearch();
       const current = findRoomOf(socket);
       if (current?.game && !current.game.isFinished) {
-        ack?.({ error: 'Вы уже участвуете в партии — вернитесь в неё' });
+        ack({ error: 'Вы уже участвуете в партии — вернитесь в неё' });
         return;
       }
       if (current) {
         // уже в комнате ожидания — просто остаёмся в ней
         if (current.state === 'waiting') {
-          ack?.({ code: current.code });
+          ack({ code: current.code });
           broadcast(current);
           maybeAutoStart(current);
+          // живому игроку сразу подсаживаем ботов, не дожидаясь тика матчмейкинга
+          if (!db.isBotUser(uid)) void botPool.fillRoom(current);
           return;
         }
         // завершённая партия: выходим из старой комнаты перед подбором
@@ -208,12 +254,28 @@ export function attachSocket(io: Server): void {
         else if (current.hostId === uid) current.hostId = current.members.keys().next().value as string;
         broadcast(current);
       }
-      const target = manager.pickQuickRoom();
+      // Зал выбирает игрок: «Играть» приходит с идентификатором зала.
+      // Кроме денег нужен ранг — так у игрока есть цель «дорасти до зала».
+      const wantedTier = getTier(String(body?.tier ?? '')) ?? DEFAULT_TIER;
+      if (!tierUnlockedByRank(wantedTier.id, profile.totalWinnings ?? 0)) {
+        const need = RANKS.find((r) => r.unlocks === wantedTier.id);
+        ack({
+          error:
+            wantedTier.name + ' открывается с ранга «' + (need?.name ?? '?') +
+            '» — сыграйте ещё в младших залах',
+        });
+        return;
+      }
+      if (profile.cash < wantedTier.entry) {
+        ack({ error: 'Нужно ' + wantedTier.entry.toLocaleString('ru-RU') + ' для входа в ' + wantedTier.name });
+        return;
+      }
+      const target = manager.pickQuickRoom(wantedTier.id);
       let room: Room;
       if (target) {
         const check = canJoin(target, uid);
         if (!check.ok) {
-          ack?.({ error: check.error ?? 'Нельзя войти' });
+          ack({ error: check.error ?? 'Нельзя войти' });
           return;
         }
         if (!target.members.has(uid)) {
@@ -221,18 +283,24 @@ export function attachSocket(io: Server): void {
         }
         room = target;
       } else {
-        room = manager.createRoom({ id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash, ready: false });
+        room = manager.createRoom(
+          { id: profile.id, name: profile.name, avatar: profile.avatar, cash: profile.cash, ready: false },
+          wantedTier,
+        );
       }
       socket.data.roomCode = room.code;
       socket.join(chan(room));
       room.onUpdate = () => broadcast(room);
       room.game?.markOnline(uid, true);
-      ack?.({ code: room.code });
+      ack({ code: room.code });
       broadcast(room);
       maybeAutoStart(room);
-    });
+      // живой игрок получает соперников немедленно (SLA ожидания лобби)
+      if (!db.isBotUser(uid)) void botPool.fillRoom(room);
+    }));
 
-    socket.on(C2S.ready, (payload: { ready?: boolean }) => {
+    socket.on(C2S.ready, guard('room:ready', (...args: unknown[]) => {
+      const payload = (args[0] ?? {}) as { ready?: boolean };
       const room = findRoomOf(socket);
       if (!room || room.state !== 'waiting') return;
       const member = room.members.get(uid);
@@ -240,9 +308,9 @@ export function attachSocket(io: Server): void {
       member.ready = !!payload?.ready;
       broadcast(room);
       maybeAutoStart(room);
-    });
+    }));
 
-    socket.on(C2S.start, () => {
+    socket.on(C2S.start, guard('room:start', () => {
       const room = findRoomOf(socket);
       if (!room) return;
       if (uid !== room.hostId) {
@@ -258,57 +326,72 @@ export function attachSocket(io: Server): void {
         return;
       }
       startGame(room);
-    });
+    }));
 
-    socket.on(C2S.ante, (payload: { amount: number }) => {
+    /** Подтверждение входа в партию: плата фиксирована залом */
+    socket.on(C2S.ante, guard('game:ante', () => {
       withGame(socket, (game) => {
-        const err = game.submitAnte(uid, Number(payload.amount));
+        const err = game.confirmEntry(uid);
         if (err) sendError(socket, err);
       });
-    });
+    }));
 
-    socket.on(C2S.bid, (payload: { amount: number }) => {
+    socket.on(C2S.bid, guard('game:bid', (...args: unknown[]) => {
+      const payload = (args[0] ?? {}) as { amount: number };
       withGame(socket, (game) => {
         const err = game.submitBid(uid, Number(payload.amount));
         if (err) sendError(socket, err);
       });
-    });
+    }));
 
     /** Применить карточку-анализатор во время партии (личная, влияет только на владельца) */
-    socket.on(C2S.useCard, (payload: { cardId?: string }, ack?: (resp: { ok: boolean; error?: string }) => void) => {
+    socket.on(C2S.useCard, guard('card:use', (...args: unknown[]) => {
+      const payload = (args[0] ?? {}) as { cardId?: string };
+      const ack = ackOf<{ ok: boolean; error?: string }>(...args);
       const room = findRoomOf(socket);
       if (!room?.game) {
-        ack?.({ ok: false, error: 'Карточку можно применить только в партии' });
+        ack({ ok: false, error: 'Карточку можно применить только в партии' });
         return;
       }
       const def = findCard(String(payload?.cardId ?? ''));
       if (!def || def.setId !== 'analyzers' || !def.reveals) {
-        ack?.({ ok: false, error: 'Карточка не найдена' });
+        ack({ ok: false, error: 'Карточка не найдена' });
         return;
       }
       if (!db.getCards(uid).some((c) => c.cardId === def.id)) {
-        ack?.({ ok: false, error: 'У вас нет карточки «' + def.name + '»' });
+        ack({ ok: false, error: 'У вас нет карточки «' + def.name + '»' });
         return;
       }
       const gameErr = room.game.useAnalyzerCard(uid, def.reveals);
       if (gameErr) {
-        ack?.({ ok: false, error: gameErr });
+        ack({ ok: false, error: gameErr });
         return;
       }
       db.consumeCardByDef(uid, def.id);
-      ack?.({ ok: true });
+      ack({ ok: true });
       broadcast(room);
-    });
+    }));
 
-    socket.on(C2S.sync, (payload: { code?: string }, ack?: (resp: { ok: boolean; error?: string }) => void) => {
+    /** Короткая реплика за столом (чат партии) */
+    socket.on(C2S.say, guard('game:say', (...args: unknown[]) => {
+      const payload = (args[0] ?? {}) as { text?: string };
+      withGame(socket, (game) => {
+        const err = game.say(uid, String(payload?.text ?? ''));
+        if (err) sendError(socket, err);
+      });
+    }));
+
+    socket.on(C2S.sync, guard('game:sync', (...args: unknown[]) => {
+      const payload = (args[0] ?? {}) as { code?: string };
+      const ack = ackOf<{ ok: boolean; error?: string }>(...args);
       const code = String(payload?.code ?? '');
       const room = manager.getRoom(code);
       if (!room) {
-        ack?.({ ok: false, error: 'Комната не найдена' });
+        ack({ ok: false, error: 'Комната не найдена' });
         return;
       }
       if (!room.members.has(uid)) {
-        ack?.({ ok: false, error: 'Вы не состоите в этой комнате' });
+        ack({ ok: false, error: 'Вы не состоите в этой комнате' });
         return;
       }
       socket.data.roomCode = room.code;
@@ -316,10 +399,10 @@ export function attachSocket(io: Server): void {
       room.onUpdate = () => broadcast(room);
       room.game?.markOnline(uid, true);
       sendPersonalized(socket, room);
-      ack?.({ ok: true });
-    });
+      ack({ ok: true });
+    }));
 
-    socket.on(C2S.leaveRoom, () => {
+    socket.on(C2S.leaveRoom, guard('room:leave', () => {
       const room = findRoomOf(socket);
       if (!room) return;
       socket.data.roomCode = undefined;
@@ -336,7 +419,7 @@ export function attachSocket(io: Server): void {
       }
       if (room.hostId === uid) room.hostId = room.members.keys().next().value as string;
       broadcast(room);
-    });
+    }));
 
     socket.on('disconnect', () => {
       const room = findRoomOf(socket);

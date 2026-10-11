@@ -1,6 +1,6 @@
 <template>
   <div class="min-h-screen flex items-center justify-center p-6">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
+    <div ref="cardEl" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
       <h1 class="text-2xl font-bold text-center mb-1">Раз, два, продано!</h1>
       <p class="text-center text-slate-400 text-sm mb-8">Аукцион + покер по мотивам события из Neverness to Everness</p>
 
@@ -48,28 +48,94 @@
         </button>
       </div>
 
+      <button
+        v-if="allowDevLogin"
+        type="button"
+        :disabled="busy"
+        class="mt-2 w-full border border-sky-500/60 text-sky-300 font-medium rounded-lg py-2.5 px-4 text-sm transition hover:bg-sky-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        @click="openPasswordDialog"
+      >
+        Войти как shlepafloppa
+      </button>
+
       <p class="text-xs text-slate-500 mt-5 text-center">
         Новичкам выдаётся набор предметов на ~600 000, 500 000 наличными, 5 «Пыльных ваз» и 3 карточки «Малый анализатор редкости»
       </p>
     </div>
+
+    <Dialog v-model:open="passwordOpen">
+      <DialogContent class="max-w-sm">
+        <DialogHeader class="pr-8">
+          <DialogTitle class="text-lg font-semibold">Вход: shlepafloppa</DialogTitle>
+        </DialogHeader>
+
+        <form class="mt-4 space-y-3" @submit.prevent="passwordLogin">
+          <label class="block text-sm text-slate-300" for="shlepafloppa-password">Пароль</label>
+          <input
+            id="shlepafloppa-password"
+            v-model="password"
+            type="password"
+            class="input-dark"
+            autocomplete="current-password"
+            placeholder="Введите пароль"
+            :disabled="passwordBusy"
+          />
+
+          <p v-if="passwordError" class="px-3 py-2 rounded bg-rose-950 text-rose-300 text-sm">{{ passwordError }}</p>
+
+          <div class="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              class="btn-ghost"
+              :disabled="passwordBusy"
+              @click="passwordOpen = false"
+            >
+              Отмена
+            </button>
+            <button type="submit" class="btn-primary" :disabled="passwordBusy || !password">
+              {{ passwordBusy ? 'Вход…' : 'Войти' }}
+            </button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { gsap, motionOK, shake, staggerIn } from '../lib/animations';
 import { useRoute, useRouter } from 'vue-router';
-import { post } from '../lib/api';
+import { get, post } from '../lib/api';
 import { useAuthStore } from '../stores/auth';
+import Dialog from '../components/ui/dialog/Dialog.vue';
+import DialogContent from '../components/ui/dialog/DialogContent.vue';
+import DialogHeader from '../components/ui/dialog/DialogHeader.vue';
+import DialogTitle from '../components/ui/dialog/DialogTitle.vue';
 import type { Profile } from '@auctioneer/shared';
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const cardEl = ref<HTMLElement | null>(null);
 const busy = ref(false);
 const oauthError = ref(false);
 const devError = ref('');
 
+// вход по паролю (аккаунт shlepafloppa)
+const passwordOpen = ref(false);
+const password = ref('');
+const passwordError = ref('');
+const passwordBusy = ref(false);
+const allowDevLogin = ref(false);
+
 onMounted(async () => {
+  // карточка входа «проявляется», кнопки въезжают каскадом
+  if (motionOK && cardEl.value) {
+    gsap.from(cardEl.value, { y: 18, opacity: 0, duration: 0.5, ease: 'power2.out' });
+    staggerIn(cardEl.value.querySelectorAll('button'), { stagger: 0.06, y: 10, delay: 0.15 });
+  }
+  void loadHealth();
   const token = route.query.token as string | undefined;
   if (route.query.error) {
     oauthError.value = true;
@@ -87,6 +153,41 @@ onMounted(async () => {
     router.replace('/');
   }
 });
+
+/** Тестовые кнопки прячем, если на сервере выключен ALLOW_DEV_LOGIN */
+async function loadHealth(): Promise<void> {
+  try {
+    const health = await get<{ allowDevLogin?: boolean }>('/api/health');
+    allowDevLogin.value = !!health.allowDevLogin;
+  } catch {
+    allowDevLogin.value = false;
+  }
+}
+
+function openPasswordDialog(): void {
+  password.value = '';
+  passwordError.value = '';
+  passwordOpen.value = true;
+}
+
+async function passwordLogin(): Promise<void> {
+  if (passwordBusy.value || !password.value) return;
+  passwordBusy.value = true;
+  passwordError.value = '';
+  try {
+    const resp = await post<{ token: string; profile: Profile }>('/api/auth/password-login', {
+      account: 'shlepafloppa',
+      password: password.value,
+    });
+    auth.setToken(resp.token);
+    auth.user = resp.profile;
+    router.replace('/');
+  } catch (e) {
+    passwordError.value = (e as Error).message;
+  } finally {
+    passwordBusy.value = false;
+  }
+}
 
 function googleLogin(): void {
   window.location.href = '/api/auth/google';

@@ -1,8 +1,9 @@
 // Игровой движок «Раз, два, продано!» — «Корабль сокровищ»:
 // вступительные ставки + один аукцион на весь стол из 5 раундов (как в NTE)
 import {
-  ANTE_MAX,
-  ANTE_MIN,
+  COMPENSATION_FLOOR_SHARE,
+  streakBonus,
+  COMPENSATION_RATE,
   BETTING_SECONDS,
   BID_SECONDS,
   GRID_H,
@@ -10,10 +11,9 @@ import {
   MULTIPLIERS,
   MULTIPLIER_PCT,
   PRIZE_RARITY,
+  TABLE_FILL_ABS_MIN,
   TABLE_FILL_MAX,
   TABLE_FILL_MIN,
-  TABLE_VALUE_MAX,
-  TABLE_VALUE_MIN,
   REVEAL_FRACTIONS,
   REVEAL_SECONDS,
   RESOLVE_SECONDS,
@@ -21,6 +21,10 @@ import {
   fmt,
   generateItem,
   itemsTotal,
+  instanceFromDef,
+  ITEM_CATALOG,
+  RARITY_ORDER,
+  DEFAULT_TIER,
 } from '@auctioneer/shared';
 import type {
   AuctionPhase,
@@ -39,7 +43,21 @@ import type {
   PublicPlayer,
   Rarity,
   RarityHint,
+  TierDef,
 } from '@auctioneer/shared';
+
+
+/**
+ * Минимальная доля ставки, которая остаётся в банке и не может уйти
+ * проигравшим в виде компенсации. Гарантирует, что переплата никогда не
+ * становится выгодной: игроки не могут «выкупить» стол дешевле его стоимости.
+ */
+function compensationFloor(_tableValue: number, price: number): number {
+  return Math.round(price * COMPENSATION_FLOOR_SHARE);
+}
+
+/** Самая низкая цена за клетку в каталоге (белые предметы) — нижняя граница плотности стола */
+const CHEAPEST_PER_CELL = 1_379;
 
 /** Порог плотности ценности (валюты на клетку), выше которого стол добирается дорогими редкостями */
 const EXPENSIVE_DENSITY = 26_000;
@@ -49,12 +67,46 @@ const EXPENSIVE_RARITY: Record<Rarity, number> = {
   white: 2, green: 8, blue: 12, purple: 16, yellow: 22, gold: 24, red: 16,
 };
 
+/**
+ * Средняя ценность одной клетки по редкостям (считается один раз из каталога).
+ * Белый ≈ 1.4к/клетка, красный ≈ 134к/клетка — эти числа и позволяют собирать
+ * стол заданной стоимости, а не «как получится».
+ */
+const RARITY_DENSITY: Record<Rarity, number> = (() => {
+  const out = {} as Record<Rarity, number>;
+  for (const rarity of RARITY_ORDER) {
+    const pool = ITEM_CATALOG.filter((d) => d.rarity === rarity);
+    if (pool.length === 0) {
+      out[rarity] = 1;
+      continue;
+    }
+    const value = pool.reduce((s, d) => s + d.value, 0) / pool.length;
+    const cells = pool.reduce((s, d) => s + Math.max(1, d.w * d.h), 0) / pool.length;
+    out[rarity] = Math.max(1, value / cells);
+  }
+  return out;
+})();
+
+/** Веса редкостей по близости их «цены за клетку» к требуемой плотности */
+function rarityWeightsFor(densityNeed: number): Record<Rarity, number> {
+  const out = {} as Record<Rarity, number>;
+  for (const rarity of RARITY_ORDER) {
+    const d = RARITY_DENSITY[rarity];
+    // логарифмическое расстояние: 1 — идеальное совпадение
+    const closeness = Math.min(d, densityNeed) / Math.max(d, densityNeed);
+    out[rarity] = 0.02 + closeness * closeness * closeness;
+  }
+  return out;
+}
+
 export interface EnginePlayerSeed {
   id: string;
   name: string;
   avatar?: string;
   cash: number;
   inventory: ItemInstance[];
+  /** текущая серия побед подряд — за неё начисляется надбавка к призовым */
+  streak?: number;
 }
 
 interface GPlayer {
@@ -71,6 +123,8 @@ interface GPlayer {
   online: boolean;
   passed: boolean;
   bid: number | null;
+  /** серия побед подряд на входе в партию */
+  streak: number;
   inventory: ItemInstance[];
 }
 
@@ -125,6 +179,13 @@ export interface GameOptions {
   code: string;
   hostId: string;
   players: EnginePlayerSeed[];
+  /**
+   * Зал казино: фиксированная плата за вход и предопределённая ценность стола.
+   * Стол разыгрывается движком ДО начала партии и не зависит от того, сколько
+   * внесли игроки, — это и делает игру азартной, а не «аукционом взносов».
+   * По умолчанию — медный зал (удобно для тестов).
+   */
+  tier?: TierDef;
   rng?: () => number;
   now?: () => number;
   bettingSeconds?: number;
@@ -133,6 +194,11 @@ export interface GameOptions {
   resolveSeconds?: number;
   /** активные бонусы сетов убежища по игрокам */
   playerBonuses?: Record<string, string[]>;
+  /**
+   * Только для тестов: заранее заданный призовой стол вместо случайного.
+   * Позволяет проверить расчёт партии на точных числах.
+   */
+  tableItems?: ItemInstance[];
   onStateChange?: () => void;
   onFinished?: (report: FinalReport) => void;
 }
@@ -149,6 +215,12 @@ export class Game {
   private bidSeconds: number;
   private resolveSeconds: number;
   private bonuses: Record<string, string[]> = {};
+  /** зал казино: плата за вход и диапазон ценности стола */
+  readonly tier: TierDef;
+  /** предопределённая (разыгранная заранее) ценность стола */
+  readonly tableValue: number;
+  /** тестовый стол (если задан — случайная генерация не используется) */
+  private tableOverride: ItemInstance[] | null;
   private privateReveals = new Map<string, PrivateReveal[]>();
   private privateHints = new Map<string, string[]>();
   /** личные подсказки о редкости скрытых предметов (карточки-анализаторы) */
@@ -165,7 +237,7 @@ export class Game {
   private finished = false;
   private pot = 0;
 
-  phase: GamePhase = 'betting';
+  phase: GamePhase = 'ready';
   deadline = 0;
   /** сколько денег ушло в банк дома за торги — для проверки консервации */
   moneyToBank = 0;
@@ -181,6 +253,13 @@ export class Game {
     this.bidSeconds = opts.bidSeconds ?? BID_SECONDS;
     this.resolveSeconds = opts.resolveSeconds ?? RESOLVE_SECONDS;
     this.bonuses = opts.playerBonuses ?? {};
+    this.tier = opts.tier ?? DEFAULT_TIER;
+    this.tableOverride = opts.tableItems ?? null;
+    // Ценность стола разыгрывается ЗАРАНЕЕ и фиксируется до начала партии.
+    // Смещение к нижней границе: дорогие столы — редкость и потому желанны.
+    this.tableValue = Math.round(
+      this.tier.tableMin + (this.tier.tableMax - this.tier.tableMin) * Math.pow(this.rng(), 1.7),
+    );
     this.onStateChange = opts.onStateChange;
     this.onFinished = opts.onFinished;
     this.players = opts.players.map((p) => ({
@@ -195,12 +274,18 @@ export class Game {
       online: true,
       passed: false,
       bid: null,
+      streak: p.streak ?? 0,
       inventory: p.inventory.map((i) => ({ ...i })),
     }));
-    // стол формируется и запечатывается ДО вступительных ставок
+    // стол формируется и запечатывается ДО начала торгов
     this.buildTable();
     this.deadline = this.now() + this.bettingSeconds * 1000;
-    this.addLog('system', 'Стол сформирован и запечатан. Сделайте вступительные ставки (от ' + fmt(ANTE_MIN) + ' до ' + fmt(ANTE_MAX) + ').');
+    this.addLog(
+      'system',
+      this.tier.name + ': плата за вход ' + fmt(this.tier.entry) +
+        '. Стол запечатан — его ценность определена заранее.',
+    );
+    this.addLog('system', 'Подтвердите вход, чтобы начать торги.');
   }
 
   // ---------- вспомогательные ----------
@@ -216,6 +301,21 @@ export class Game {
 
   hasPlayer(id: string): boolean {
     return !!this.getPlayer(id);
+  }
+
+  /**
+   * Короткая реплика игрока в лог партии. Текст приходит от клиента, поэтому
+   * ограничиваем длину и вырезаем переводы строк — это «чат», а не команды.
+   */
+  say(playerId: string, text: string): string | null {
+    if (this.finished) return 'Партия завершена';
+    const p = this.getPlayer(playerId);
+    if (!p) return 'Игрок не найден';
+    const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!clean) return 'Пустое сообщение';
+    this.addLog('chat', p.name + ': ' + clean);
+    this.changed();
+    return null;
   }
 
   get isFinished(): boolean {
@@ -246,16 +346,21 @@ export class Game {
 
   // ---------- вступительные ставки ----------
 
-  submitAnte(playerId: string, amount: number): string | null {
-    if (this.phase !== 'betting') return 'Ставки сейчас не принимаются';
+  /**
+   * Подтверждение входа в партию. Сумму выбирать нельзя: плата за вход
+   * фиксирована залом, а ценность стола уже разыграна заранее.
+   */
+  confirmEntry(playerId: string): string | null {
+    if (this.phase !== 'ready') return 'Вход сейчас недоступен';
     const p = this.getPlayer(playerId);
     if (!p) return 'Игрок не найден';
-    amount = Math.floor(amount);
-    if (!Number.isFinite(amount) || amount < 1) return 'Ставка должна быть больше нуля';
-    if (amount > ANTE_MAX) return 'Максимальная вступительная ставка — ' + fmt(ANTE_MAX);
-    if (amount > p.cash) return 'Недостаточно средств';
-    p.ante = amount;
-    this.addLog('system', p.name + ' поставил(а) вступительную ставку ' + fmt(amount));
+    if (p.ante > 0) return 'Вход уже подтверждён';
+    if (p.cash < this.tier.entry) {
+      return 'Нужно ' + fmt(this.tier.entry) + ' для входа в ' + this.tier.name;
+    }
+    p.ante = this.tier.entry;
+    this.addLog('system', p.name + ' внёс(ла) вход ' + fmt(this.tier.entry));
+    // как только все подтвердили — сразу начинаем торги
     if (this.players.every((q) => q.ante > 0)) this.deadline = 0;
     this.changed();
     return null;
@@ -268,8 +373,8 @@ export class Game {
 
   advance(): void {
     if (this.finished) return;
-    if (this.phase === 'betting') {
-      this.lockBetting();
+    if (this.phase === 'ready') {
+      this.lockEntries();
       return;
     }
     if (this.phase === 'auction' && this.auction) {
@@ -283,18 +388,22 @@ export class Game {
     }
   }
 
-  private lockBetting(): void {
+  /**
+   * Закрытие входа: со всех списывается фиксированная плата за вход.
+   * Кто не подтвердил вовремя — платит всё равно (он уже в партии), а если
+   * денег не хватает, играет за счёт минимального входа из остатка.
+   */
+  private lockEntries(): void {
     let pot = 0;
     for (const p of this.players) {
-      let ante = p.ante;
-      if (ante <= 0) ante = Math.min(ANTE_MIN, p.cash);
-      p.ante = ante;
-      p.cash -= ante;
-      p.spent += ante;
-      pot += ante;
+      const entry = Math.min(this.tier.entry, Math.max(0, p.cash));
+      p.ante = entry;
+      p.cash -= entry;
+      p.spent += entry;
+      pot += entry;
     }
     this.pot = pot;
-    this.addLog('system', 'Ставки приняты. Банк партии: ' + fmt(pot));
+    this.addLog('system', 'Вход закрыт. Банк зала: ' + fmt(pot));
     this.phase = 'auction';
     this.addLog('system', '«Корабль сокровищ» готов к торгам!');
     this.startAuction();
@@ -312,33 +421,158 @@ export class Game {
    * высока, редкости смещаются в сторону дорогих предметов.
    */
   private buildTable(): void {
+    // тестовый оверрайд: стол задан снаружи
+    if (this.tableOverride && this.tableOverride.length > 0) {
+      for (const it of this.tableOverride) {
+        if (!this.tryPlaceItem({ ...it })) this.dropped.push({ ...it });
+      }
+      return;
+    }
+    // Тестовый оверрайд стоимости: позволяет интеграционным тестам получить
+    // заранее известную сумму стола (например, чтобы проверить переплату).
+    const forcedValue = Number(process.env.GAME_TABLE_VALUE_OVERRIDE ?? 0);
+    if (Number.isFinite(forcedValue) && forcedValue > 0) {
+      let placedValue = 0;
+      let guardLeft = 600;
+      while (placedValue < forcedValue && guardLeft-- > 0) {
+        const remaining = forcedValue - placedValue;
+        const item = generateItem(this.rng, { rarityWeights: PRIZE_RARITY });
+        // подгоняем предмет под остаток, чтобы итог совпал точно
+        const value = Math.max(1, Math.min(remaining, item.value));
+        const fitted = { ...item, value };
+        if (this.tryPlaceItem(fitted)) placedValue += value;
+      }
+      if (placedValue > 0) return;
+    }
     const totalCells = GRID_W * GRID_H;
-    const minCover = Math.floor(totalCells * TABLE_FILL_MIN);
+    // Ценность стола ПРЕДОПРЕДЕЛЕНА залом и разыграна до начала партии:
+    // игроки не влияют на неё своими взносами.
+    const target = this.tableValue;
+    const absMin = Math.floor(totalCells * TABLE_FILL_ABS_MIN);
+    const softMin = Math.floor(totalCells * TABLE_FILL_MIN);
     const maxCover = Math.floor(totalCells * TABLE_FILL_MAX);
-    // целевая стоимость стола в диапазоне 300 000..9 000 000 со смещением к минимуму:
-    // дешёвые столы выпадают чаще всего, шанс падает с ростом стоимости (куб от rng)
-    const roll = this.rng();
-    const target =
-      TABLE_VALUE_MIN +
-      Math.floor((TABLE_VALUE_MAX - TABLE_VALUE_MIN) * roll * roll * roll);
+    // Покрытие ограничено ценностью: чтобы набрать дешёвый стол, приходится
+    // брать мелкие предметы, и 50% клеток может не хватить. Поэтому для дешёвых
+    // столов допускаем меньшее покрытие (до TABLE_FILL_ABS_MIN).
+    // Сколько клеток можно занять, чтобы не выйти за ценность: даже самыми
+    // дешёвыми предметами дороже этой площади стол не собрать.
+    const maxCellsForValue = Math.max(absMin, Math.floor(target / CHEAPEST_PER_CELL));
+    const minCover = Math.max(absMin, Math.min(softMin, maxCellsForValue));
+    const hardCover = Math.min(maxCover, maxCellsForValue);
+    const coverTarget = Math.min(
+      minCover + Math.floor(Math.max(0, hardCover - minCover) * this.rng()),
+      hardCover,
+    );
+
+    // Набираем стол так, чтобы уложиться И в целевую стоимость, И в площадь.
+    // Ключ — ценность на клетку: она подсказывает, какие редкости брать
+    // (белый ≈1.4к/клетка ... красный ≈134к/клетка). Раньше стоимость цели
+    // игнорировалась: цикл работал «пока не закрыто 50% клеток», и любой стол
+    // выходил на ~3.7 млн независимо от цели.
+    //
+    // Плотность = сколько валюты должно приходиться на клетку стола. Из неё
+    // получаем бюджет клеток для каждой редкости: дорогие предметы «съедают»
+    // меньше места, дешёвые — больше. Так дешёвый стол становится плотной
+    // горой мелочи, а дорогой — несколькими ценными вещами.
+    const density = target / Math.max(1, coverTarget);
+    const weights = rarityWeightsFor(density);
+    // Долю клеток считаем не по «популярности» редкости, а по её вкладу в
+    // ценность: клетки × цена за клетку. Иначе дорогие редкости получают
+    // слишком много места и стол выходит вдвое дороже цели.
+    const shares = RARITY_ORDER.map((r) => weights[r] * RARITY_DENSITY[r]);
+    const shareSum = shares.reduce((a, b) => a + b, 0) || 1;
+    const budget: Record<Rarity, number> = {} as Record<Rarity, number>;
+    let assigned = 0;
+    for (let i = 0; i < RARITY_ORDER.length; i++) {
+      const r = RARITY_ORDER[i];
+      if (i === RARITY_ORDER.length - 1) {
+        budget[r] = Math.max(0, coverTarget - assigned);
+      } else {
+        budget[r] = Math.floor((shares[i] / shareSum) * coverTarget);
+        assigned += budget[r];
+      }
+    }
+
+    // Собираем пул так, чтобы его СУММА сразу равнялась цели: каждой редкости
+    // достаётся доля денег (не клеток!), и внутри неё мы набираем предметы,
+    // пока доля не выбрана. Площадь выходит производной — это и даёт нужную
+    // плотность без подгонки.
+    const items: ItemInstance[] = [];
+    const valuePlan = RARITY_ORDER.map((_, i) => (shares[i] / shareSum) * target);
+    for (let ri = 0; ri < RARITY_ORDER.length; ri++) {
+      const rarity = RARITY_ORDER[ri];
+      const pool = ITEM_CATALOG.filter((d) => d.rarity === rarity);
+      if (pool.length === 0) continue;
+      let given = 0;
+      let guard = 0;
+      while (given < valuePlan[ri] * 0.92 && guard++ < 400) {
+        const def = pool[Math.floor(this.rng() * pool.length)];
+        const remaining = valuePlan[ri] - given;
+        // последний предмет подрезаем под остаток доли, чтобы не перебрать
+        const fitted = def.value > remaining * 1.3
+          ? { ...instanceFromDef(def), value: Math.max(1, Math.round(remaining)) }
+          : instanceFromDef(def);
+        items.push(fitted);
+        given += fitted.value;
+      }
+    }
+
+    // Укладываем по строгому бюджету: ни ценность, ни площадь не выходят за
+    // цель. Дорогие предметы идут первыми (место ограничено), но если предмет
+    // не влезает в остаток ценности — пропускаем и пробуем более дешёвый.
+    // Пул сбалансирован заранее, поэтому укладываем вразнобой: жадный выбор
+    // «дорогие вперёд» съедал бюджет двумя предметами и оставлял стол пустым.
+    const cellBudget = Math.max(coverTarget, hardCover);
+    const valueBudget = target * 1.18;
     let value = 0;
     let covered = 0;
-    let guard = 0;
-    while ((value < target || covered < minCover) && guard++ < 600) {
-      // сколько ценности нужно «уместить» в оставшиеся клетки
-      const densityNeed = (target - value) / Math.max(1, maxCover - covered);
-      const weights = densityNeed > EXPENSIVE_DENSITY ? EXPENSIVE_RARITY : PRIZE_RARITY;
-      const item = generateItem(this.rng, { rarityWeights: weights });
-      const area = item.w * item.h;
-      if (covered + area > maxCover) {
-        this.dropped.push(item);
-        break; // жёсткий потолок по клеткам
+    this.shuffle(items);
+    // Проходим список несколько раз: после пропуска дорогих предметов
+    // освободившееся место заполняют более дешёвые.
+    // ВАЖНО: уложенный предмет помечаем как использованный. Без этого один и
+    // тот же объект укладывался повторно в следующих проходах — на столе
+    // появлялись дубликаты с одинаковым id (ломает и доску, и подсказки).
+    const used = new Set<ItemInstance>();
+    for (let pass = 0; pass < 4; pass++) {
+      let placedThisPass = 0;
+      for (const item of items) {
+        if (used.has(item)) continue;
+        if (covered >= coverTarget && value >= target) break;
+        const area = item.w * item.h;
+        if (covered + area > cellBudget) continue;
+        if (value + item.value > valueBudget) continue;
+        if (this.tryPlaceItem(item)) {
+          used.add(item);
+          value += item.value;
+          covered += area;
+          placedThisPass += 1;
+        }
       }
-      if (this.tryPlaceItem(item)) {
-        value += item.value;
-        covered += area;
-      } else {
-        this.dropped.push(item);
+      if (placedThisPass === 0) break;
+      if (covered >= coverTarget && value >= target) break;
+    }
+    // Страховка от «дырявой» упаковки: если площадь сильно не добрана,
+    // добираем её любыми дешёвыми предметами в пределах бюджета.
+    if (covered < coverTarget) {
+      const cheap = ITEM_CATALOG.filter((d) => d.value <= 6_000)
+        .map((d) => instanceFromDef(d))
+        .sort((a, b) => a.value - b.value);
+      for (let pass = 0; pass < 30 && covered < coverTarget; pass++) {
+        let placedThisPass = 0;
+        for (const filler of cheap) {
+          if (used.has(filler)) continue;
+          if (covered >= coverTarget) break;
+          const area = filler.w * filler.h;
+          if (covered + area > cellBudget) continue;
+          if (value + filler.value > valueBudget) continue;
+          if (this.tryPlaceItem(filler)) {
+            used.add(filler);
+            value += filler.value;
+            covered += area;
+            placedThisPass += 1;
+          }
+        }
+        if (placedThisPass === 0) break;
       }
     }
   }
@@ -438,6 +672,8 @@ export class Game {
    */
   useAnalyzerCard(playerId: string, count: number): string | null {
     if (this.phase !== 'auction' || !this.auction) return 'Анализатор можно применить только во время торгов';
+    // только по-настоящему скрытые предметы: подсказка о том, что уже видно,
+    // бесполезна и ломает контракт «подсказка указывает на закрытую клетку»
     const hidden = this.placed.filter((pl) => !pl.revealed);
     if (hidden.length === 0) return 'На столе нет скрытых предметов';
     const picked = this.shuffle(hidden).slice(0, Math.max(1, Math.min(count, hidden.length)));
@@ -601,25 +837,68 @@ export class Game {
     const winner = this.getPlayer(winnerId);
     if (!winner) return;
     this.revealAll();
+    // Ставку платит ТОЛЬКО победитель. Проигравшие свои ставки не теряют:
+    // они уже внесли вступительный взнос, и на этом их расходы закончились.
     winner.cash -= price;
     winner.spent += price;
     const totalValue = itemsTotal(this.placed.map((pl) => pl.it));
     // предметы остаются на столе (для финального экрана), но переходят победителю
     for (const pl of this.placed) winner.inventory.push(pl.it);
-    // компенсация как в NTE: переплата возвращается остальным из банка
-    let compensation = 0;
+
+    // Итог победителя: забрал стол стоимостью totalValue, заплатил price.
+    // Если стол дороже ставки — он в плюсе, остальные просто ничего не получают
+    // (но и не теряют). Если ставка дороже стола — победитель в минусе, и каждый
+    // проигравший получает от банка 10% от этого минуса.
     const losers = this.players.filter((p) => p.id !== winnerId);
-    if (price > totalValue && losers.length > 0) {
-      const per = Math.floor((price - totalValue) / losers.length);
-      if (per > 0) {
-        for (const l of losers) l.cash += per;
-        compensation = per * losers.length;
+    const lostDeal = price - totalValue;
+    let compensation = 0;
+    let perLoser = 0;
+    if (lostDeal > 0 && losers.length > 0) {
+      perLoser = Math.floor(lostDeal * COMPENSATION_RATE);
+      // КРИТИЧНО: суммарные выплаты не могут превышать то, что заплатил
+      // победитель. Иначе при 3+ проигравших (по 10% на каждого = 30% минуса)
+      // переплата становится выгодной и игроки печатают деньги из банка дома:
+      // заплатил 1 000 000 за стол в 100 000 → минус 900 000 → вернули 270 000.
+      const maxTotal = Math.max(0, price - compensationFloor(totalValue, price));
+      const rawTotal = perLoser * losers.length;
+      if (rawTotal > maxTotal) {
+        perLoser = Math.floor(maxTotal / losers.length);
+      }
+      if (perLoser > 0) {
+        for (const l of losers) l.cash += perLoser;
+        compensation = perLoser * losers.length;
       }
     }
-    this.moneyToBank += price - compensation;
+    // Серия побед: за азарт платит зал. Надбавка идёт из банка дома и
+    // начисляется только победителю — это и есть награда за «поймал волну».
+    const bonusRate = streakBonus(winner.streak);
+    const bonus = bonusRate > 0 ? Math.round(price * bonusRate) : 0;
+    if (bonus > 0) {
+      winner.cash += bonus;
+      winner.spent -= bonus;
+      this.addLog(
+        'result',
+        'Серия побед ' + winner.streak + ': зал добавляет ' + fmt(bonus) +
+          ' (' + Math.round(bonusRate * 100) + '%)',
+      );
+    }
+    this.moneyToBank += price - compensation - bonus;
     this.addLog('result', 'Победитель: ' + winner.name + ' за ' + fmt(price) + ' — забирает все предметы стола');
-    if (compensation > 0) {
-      this.addLog('result', 'Переплата: банк выплатил компенсацию ' + fmt(compensation) + ' остальным игрокам');
+    if (losers.length > 0) {
+      if (lostDeal > 0) {
+        this.addLog(
+          'result',
+          perLoser > 0
+            ? 'Победитель в минусе на ' + fmt(lostDeal) + ': каждый проигравший получает ' +
+              fmt(perLoser) + ' (10% от минуса)'
+            : 'Победитель в минусе на ' + fmt(lostDeal) + ', но сумма слишком мала для выплат',
+        );
+      } else {
+        this.addLog(
+          'result',
+          'Победитель в плюсе на ' + fmt(-lostDeal) + ': проигравшие ничего не получают и ничего не теряют',
+        );
+      }
     }
     a.result = { winnerId, price, compensation };
     a.phase = 'resolve';
@@ -761,6 +1040,17 @@ export class Game {
       deadline: this.deadline,
       log: this.log.slice(-100),
       final: this.final ?? undefined,
+      tier: {
+        id: this.tier.id,
+        name: this.tier.name,
+        tagline: this.tier.tagline,
+        entry: this.tier.entry,
+        tableMin: this.tier.tableMin,
+        tableMax: this.tier.tableMax,
+        color: this.tier.color,
+        icon: this.tier.icon,
+      },
+      tableValue: this.tableValue,
     };
   }
 

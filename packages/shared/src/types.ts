@@ -41,7 +41,7 @@ export interface ItemInstance {
 
 // ---------- Публичное состояние игры ----------
 
-export type GamePhase = 'waiting' | 'betting' | 'auction' | 'finished';
+export type GamePhase = 'waiting' | 'ready' | 'auction' | 'finished';
 export type AuctionPhase = 'reveal' | 'bid' | 'resolve';
 
 export interface PublicPlayer {
@@ -141,7 +141,7 @@ export interface AuctionPublic {
 export interface LogEntry {
   at: number;
   text: string;
-  kind: 'system' | 'reveal' | 'bid' | 'result';
+  kind: 'system' | 'reveal' | 'bid' | 'result' | 'chat';
 }
 
 export interface FinalStanding {
@@ -176,6 +176,18 @@ export interface PlayerPrivate {
   rarityHints: RarityHint[];
 }
 
+/** Публичная информация о зале казино (для клиента) */
+export interface PublicTier {
+  id: string;
+  name: string;
+  tagline: string;
+  entry: number;
+  tableMin: number;
+  tableMax: number;
+  color: string;
+  icon: string;
+}
+
 export interface PublicGame {
   id: string;
   code: string;
@@ -185,6 +197,12 @@ export interface PublicGame {
   board: PublicBoard;
   items: PublicItem[];
   auction: AuctionPublic | null;
+  /** зал казино: плата за вход и предзаказанная ценность стола */
+  tier?: PublicTier;
+  /** ценность стола, разыгранная до начала партии */
+  tableValue?: number;
+  /** серия побед подряд лично у смотрящего (для показа надбавки) */
+  myStreak?: number;
   deadline: number;
   log: LogEntry[];
   final?: { standings: FinalStanding[]; winnerId: string };
@@ -219,6 +237,37 @@ export interface Profile {
   gamesWon: number;
   /** доступ к банку дома (админ-панель) */
   isAdmin: boolean;
+  /** аккаунт управляется ботом (ИИ-игроком) */
+  isBot?: boolean;
+  /** характер бота (только для ботов) */
+  botCharacter?: string;
+  /** прогресс игрока: ранг, накопленный итог, серии */
+  progress?: PlayerProgress;
+  /** текущая серия побед подряд (дублируется для быстрого доступа) */
+  currentStreak?: number;
+  /** накопленный итог партий за карьеру (дублируется для быстрого доступа) */
+  totalWinnings?: number;
+}
+
+/** Прогресс игрока: то, ради чего копят и рискуют */
+export interface PlayerProgress {
+  /** идентификатор ранга */
+  rankId: string;
+  rankName: string;
+  rankColor: string;
+  rankIcon: string;
+  /** накопленный итог партий за карьеру */
+  totalWinnings: number;
+  /** лучшая серия побед подряд */
+  bestStreak: number;
+  /** текущая серия побед подряд */
+  currentStreak: number;
+  /** следующий ранг и сколько до него осталось */
+  next: { name: string; minWinnings: number; remaining: number } | null;
+  /** доля пути до следующего ранга, 0..1 (для полосы прогресса) */
+  progress: number;
+  /** какие залы доступны по рангу */
+  unlockedTiers: string[];
 }
 
 export interface RoomInfo {
@@ -288,6 +337,8 @@ export interface LeaderboardEntry {
   /** наличные + номинал инвентаря — «счёт», по которому строится топ */
   netWorth: number;
   gamesWon: number;
+  /** аккаунт управляется ботом (ИИ-игроком) */
+  isBot?: boolean;
 }
 
 /** Ответ таблицы лидеров: страница топа + место текущего игрока */
@@ -299,6 +350,10 @@ export interface LeaderboardResponse {
   page: number;
   pageSize: number;
   totalPages: number;
+  /** сколько всего игроков-людей (без ботов) */
+  humansTotal?: number;
+  /** сколько всего ботов */
+  botsTotal?: number;
 }
 
 /** Публичная страница профиля игрока (видна любому авторизованному) */
@@ -307,6 +362,8 @@ export interface PublicProfile {
   name: string;
   avatar?: string;
   isAdmin: boolean;
+  /** аккаунт управляется ботом (ИИ-игроком) */
+  isBot?: boolean;
   /** дата регистрации, мс */
   createdAt: number;
   gamesPlayed: number;
@@ -338,6 +395,8 @@ export const C2S = {
   /** применить особую карточку (анализатор редкости) во время партии */
   useCard: 'card:use',
   sync: 'game:sync',
+  /** короткая реплика в лог партии */
+  say: 'game:say',
 } as const;
 
 export const S2C = {

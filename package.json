@@ -11,7 +11,9 @@
     "build": "npm run build -w @auctioneer/web",
     "typecheck": "npm run typecheck -w @auctioneer/server && npm run typecheck -w @auctioneer/web",
     "test": "npm run test -w @auctioneer/server",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "bots:sla": "node scripts/bots-sla.mjs",
+    "test:e2e": "npm run test:e2e -w @auctioneer/server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

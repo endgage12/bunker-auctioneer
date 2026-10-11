@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ITEM_CATALOG, SETS } from '@auctioneer/shared';
+import {ITEM_CATALOG, SETS} from '@auctioneer/shared';
 
 describe('сеты убежища', () => {
   it('в каждом сете ровно 5 предметов, и все они есть в каталоге', () => {

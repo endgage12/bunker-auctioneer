@@ -1,5 +1,5 @@
 <template>
-  <div class="panel p-4 flex flex-col gap-3">
+  <div ref="rootEl" class="panel p-4 flex flex-col gap-3">
     <div class="flex items-center justify-between">
       <h3 class="font-semibold text-sm">🃏 Особые карточки</h3>
     </div>
@@ -22,6 +22,7 @@
         <div
           v-for="c in g.cards"
           :key="c.cardId"
+          :data-card="c.cardId"
           class="rounded-lg border border-slate-700/70 bg-slate-800/40 px-2.5 py-2 flex items-center gap-2"
         >
           <div class="min-w-0 flex-1">
@@ -52,6 +53,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { CARD_DEFS, CARD_SETS } from '@auctioneer/shared';
 import { get } from '../lib/api';
+import { gsap, motionOK } from '../lib/animations';
 import { useGameStore } from '../stores/game';
 
 const props = defineProps<{ phase: string }>();
@@ -65,6 +67,7 @@ const game = useGameStore();
 const cards = ref<PlayerCardGroup[]>([]);
 const loaded = ref(false);
 const busy = ref(false);
+const rootEl = ref<HTMLElement | null>(null);
 
 const defById = new Map(CARD_DEFS.map((d) => [d.id, d]));
 
@@ -106,8 +109,25 @@ async function use(cardId: string): Promise<void> {
   try {
     const resp = await game.useCard(cardId);
     if (resp?.ok) {
+      // карточка-анализатор «раскрывается» на панели: вспышка перед обновлением
+      if (motionOK) {
+        const row = rootEl.value?.querySelector('[data-card="' + cardId + '"]');
+        if (row) {
+          gsap.fromTo(
+            row,
+            { scale: 1 },
+            { scale: 1.04, duration: 0.2, yoyo: true, repeat: 1, ease: 'power2.inOut' },
+          );
+          gsap.fromTo(
+            row,
+            { boxShadow: '0 0 0 0 rgba(167,139,250,0)' },
+            { boxShadow: '0 0 22px 2px rgba(167,139,250,0.65)', duration: 0.45, yoyo: true, repeat: 1 },
+          );
+        }
+      }
       game.pushToast('Карточка применена — редкость скрытых предметов подсвечена на столе');
       await load();
+      animateCards();
     } else {
       game.pushToast(resp?.error ?? 'Не удалось применить карточку', 'error');
     }
@@ -117,7 +137,16 @@ async function use(cardId: string): Promise<void> {
   busy.value = false;
 }
 
+/** Каскадное появление карточек при загрузке */
+function animateCards(): void {
+  if (!motionOK || !rootEl.value) return;
+  const rows = rootEl.value.querySelectorAll('[data-card]');
+  if (rows.length === 0) return;
+  gsap.from(rows, { y: 8, opacity: 0, duration: 0.28, stagger: 0.04, ease: 'power2.out' });
+}
+
 onMounted(() => {
   void load();
+  void Promise.resolve().then(animateCards);
 });
 </script>

@@ -1,7 +1,9 @@
-// Тесты БД-уровня для продажи торговцу: «продать всё» по номиналу.
+// Тесты БД-уровня для продажи торговцу: «продать всё» по ставке торговца
+// (VENDOR_RATE от номинала — плата за мгновенность, барахолка даёт больше).
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {VENDOR_RATE} from '@auctioneer/shared';
 
 const TEST_DB = resolve(process.cwd(), '..', '..', 'data', 'test-vendor.db');
 
@@ -22,7 +24,7 @@ afterAll(() => {
 });
 
 describe('продажа торговцу', () => {
-  it('«продать всё» продаёт весь инвентарь по номиналу и начисляет деньги', () => {
+  it('«продать всё» продаёт инвентарь по ставке торговца и начисляет деньги', () => {
     const user = db.findOrCreateDevUser('vendor-all@test.dev', 'Вендор');
     const before = db.getProfile(user.id)!;
     expect(before.inventory.length).toBeGreaterThan(0);
@@ -32,11 +34,27 @@ describe('продажа торговцу', () => {
     const res = db.sellAllToVendor(user.id);
     expect(res.ok).toBe(true);
     expect(res.count).toBe(before.inventory.length);
-    expect(res.value).toBe(sum);
+    // торговец платит долю номинала, а не весь номинал
+    const expected = Math.round(sum * VENDOR_RATE);
+    const paid = res.value ?? 0;
+    expect(paid).toBeGreaterThan(0);
+    expect(paid).toBeLessThan(sum);
+    expect(Math.abs(paid - expected)).toBeLessThanOrEqual(before.inventory.length);
 
     const after = db.getProfile(user.id)!;
     expect(after.inventory).toHaveLength(0);
-    expect(after.cash).toBe(cashBefore + sum);
+    expect(after.cash).toBe(cashBefore + (res.value ?? 0));
+  });
+
+  it('мгновенная продажа торговцу невыгоднее номинала, но и не бесплатна', () => {
+    const user = db.findOrCreateDevUser('vendor-rate@test.dev', 'Ставка');
+    const before = db.getProfile(user.id)!;
+    const item = before.inventory[0];
+    const res = db.sellToVendor(user.id, item.id);
+    expect(res.ok).toBe(true);
+    // ставка торговца: плата за удобство, но не грабёж
+    expect(res.value!).toBeLessThan(item.value);
+    expect(res.value!).toBeGreaterThan(Math.round(item.value * 0.5));
   });
 
   it('повторная продажа всего — ошибка «нет предметов»', () => {

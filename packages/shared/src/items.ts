@@ -169,7 +169,7 @@ export function pickRarity(rng: () => number, weights: Record<Rarity, number>): 
 }
 
 /** Экземпляр предмета по определению каталога (номинал и размер фиксированы) */
-function instanceFromDef(def: ItemDef): ItemInstance {
+export function instanceFromDef(def: ItemDef): ItemInstance {
   return {
     id: crypto.randomUUID(),
     defId: def.id,

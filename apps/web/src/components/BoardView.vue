@@ -11,6 +11,7 @@
     >
       <div class="relative shrink-0" :style="sizerStyle">
         <div
+          ref="gridRef"
           class="board-grid"
           :style="gridStyle"
           @mouseleave="hoverIdx = -1"
@@ -28,9 +29,10 @@
 
           <!-- раскрытые предметы -->
           <div
-            v-for="it in revealedItems"
+            v-for="(it, itIdx) in revealedItems"
             :key="it.id"
-            class="board-item flip-in rounded overflow-hidden"
+            :ref="(el) => setItemEl(el as Element | null, itIdx)"
+            class="board-item rounded overflow-hidden"
             :class="clickableItem(it) ? 'cursor-pointer' : ''"
             :style="itemStyle(it)"
             :title="tooltip(it)"
@@ -116,7 +118,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { gsap } from 'gsap';
+import { gsap, motionOK } from '../lib/animations';
 import { fmt } from '@auctioneer/shared';
 import type { PublicBoard, PublicCell, PublicItem, PublicLot, Rarity, RarityHint } from '@auctioneer/shared';
 import { RARITY_HEX } from '../lib/rarity';
@@ -152,6 +154,7 @@ const emit = defineEmits<{
 
 const hoverIdx = ref(-1);
 const viewport = ref<HTMLElement | null>(null);
+const gridRef = ref<HTMLElement | null>(null);
 const fitScale = ref(1);
 let ro: ResizeObserver | null = null;
 
@@ -176,6 +179,7 @@ function measure(): void {
 onMounted(() => {
   measure();
   syncFrames();
+  void nextTick().then(playBoardWave);
   if (typeof ResizeObserver !== 'undefined' && viewport.value) {
     ro = new ResizeObserver(() => measure());
     ro.observe(viewport.value);
@@ -191,6 +195,65 @@ onBeforeUnmount(() => {
 const revealedItems = computed(() =>
   props.items.filter((i) => i.revealed && i.x !== undefined && i.y !== undefined),
 );
+
+/** DOM-узлы раскрытых предметов: нужны для точечной анимации появления */
+const itemEls = ref<HTMLElement[]>([]);
+function setItemEl(el: Element | null, i: number): void {
+  if (el) itemEls.value[i] = el as HTMLElement;
+}
+/** какие предметы уже «отыграли» появление — чтобы не повторять на каждый push */
+const revealedSeen = new Set<string>();
+
+/**
+ * Раскрытие предметов: новый предмет вспыхивает, переворачивается и
+ * подсвечивается цветом своей редкости. Сервер шлёт полный снимок на каждое
+ * действие, поэтому сравниваем по составу, а не по ссылке.
+ */
+function animateReveals(): void {
+  const list = revealedItems.value;
+  const fresh = list.filter((it) => !revealedSeen.has(it.id));
+  if (list.length === 0) return;
+  if (fresh.length === 0) return;
+  if (!motionOK) {
+    for (const it of list) revealedSeen.add(it.id);
+    return;
+  }
+  const idxOf = new Map(list.map((it, i) => [it.id, i]));
+  fresh.forEach((it, order) => {
+    revealedSeen.add(it.id);
+    const el = itemEls.value[idxOf.get(it.id) ?? -1];
+    if (!el) return;
+    const color = RARITY_HEX[it.rarity ?? 'white'] ?? '#fbbf24';
+    const tl = gsap.timeline({ delay: order * 0.06 });
+    tl.fromTo(
+      el,
+      { rotateY: 90, scale: 0.82, opacity: 0 },
+      { rotateY: 0, scale: 1, opacity: 1, duration: 0.42, ease: 'back.out(1.6)' },
+    )
+      .fromTo(
+        el,
+        { boxShadow: `0 0 0 0 ${color}00` },
+        { boxShadow: `0 0 22px 3px ${color}aa`, duration: 0.3, yoyo: true, repeat: 1 },
+        '-=0.15',
+      );
+  });
+}
+
+/** Появление стола: короткая волна по клеткам (один раз за партию) */
+let boardWavePlayed = false;
+function playBoardWave(): void {
+  if (boardWavePlayed || !motionOK) return;
+  const cells = gridRef.value?.querySelectorAll('.board-cell');
+  if (!cells || cells.length === 0) return;
+  boardWavePlayed = true;
+  gsap.from(cells, {
+    opacity: 0,
+    scale: 0.86,
+    duration: 0.35,
+    ease: 'power2.out',
+    stagger: { each: 0.004, from: 'end' },
+  });
+}
 
 const openLot = computed<PublicLot | null>(() => props.board.lots.find((l) => l.open) ?? null);
 const lotChips = computed(() => props.board.lots.filter((l) => !l.done));

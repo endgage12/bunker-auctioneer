@@ -1,7 +1,7 @@
 <template>
   <div class="h-screen flex flex-col">
     <TopNav />
-    <div class="max-w-6xl w-full mx-auto p-6 flex flex-col flex-1 min-h-0">
+    <div class="page-wide w-full py-4 sm:py-6 flex flex-col flex-1 min-h-0">
       <div class="mb-5">
         <div>
           <h1 class="text-xl font-bold">Инвентарь</h1>
@@ -14,7 +14,7 @@
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <input
             v-model="query"
-            class="input-dark sm:w-[26rem]"
+            class="input-dark w-full sm:w-[26rem] xl:w-[32rem]"
             placeholder="Поиск по названию или редкости (от 2 символов)…"
           />
           <button class="btn-ghost shrink-0" @click="autoSort">Автосортировка</button>
@@ -29,8 +29,14 @@
 
       <div v-if="!profile" class="text-slate-400">Загрузка…</div>
       <template v-else>
-        <!-- инвентарь: своя область прокрутки; карточки — отдельным блоком ниже -->
-        <div class="flex-1 min-h-0 overflow-y-auto pr-2" @scroll="closeMenu">
+        <!--
+          На 1920px сетка инвентаря занимает фиксированную ширину (12 колонок по
+          64px), и справа оставалось ~800px пустоты. Отдаём эту полосу карточкам:
+          до 1200px они идут блоком ниже, от 1200px — постоянной колонкой справа.
+        -->
+        <div class="flex-1 min-h-0 overflow-y-auto xl:overflow-hidden xl:grid xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_440px] xl:gap-6" @scroll="closeMenu">
+        <!-- инвентарь: своя область прокрутки -->
+        <div class="xl:overflow-y-auto xl:pr-2 xl:min-h-0">
         <!-- переполнение: важный блок, всегда самым первым сверху -->
         <div v-if="layout.overflow.length" class="panel p-4 mb-4 !border-rose-500/60">
           <div class="flex items-center gap-2 mb-1">
@@ -99,16 +105,17 @@
           </div>
 
         </div>
-      </div>
+        </div>
 
-        <!-- особые карточки: отдельный блок ниже инвентаря, вне его прокрутки -->
-        <div class="shrink-0 mt-4 pt-4 border-t border-slate-800">
+        </div>
+        <!-- особые карточки: колонка справа от 1200px, блок ниже на узких экранах -->
+        <div class="shrink-0 mt-4 pt-4 border-t border-slate-800 xl:mt-0 xl:pt-0 xl:border-t-0 xl:min-h-0 xl:overflow-y-auto xl:pr-2">
           <h2 class="text-lg font-bold mb-1">🃏 Особые карточки</h2>
           <p class="text-xs text-slate-400 mb-3">
             Карточки выпадают из колеса фортуны в <router-link to="/shop" class="text-amber-300 hover:underline">магазине</router-link>.
             Анализаторы применяются во время партии, усилители — прямо здесь.
           </p>
-          <div class="max-h-[38dvh] overflow-y-auto pr-2">
+          <div class="max-h-[38dvh] xl:max-h-none overflow-y-auto xl:overflow-visible pr-2 xl:pr-0">
           <div v-if="!cardsLoaded" class="text-xs text-slate-500">Загрузка карточек…</div>
           <div v-else-if="cards.length === 0" class="text-sm text-slate-500">
             Карточек пока нет — загляните в <router-link to="/shop" class="text-amber-300 hover:underline">магазин</router-link> и крутаните колесо фортуны.
@@ -152,7 +159,7 @@
       <template v-if="ctxMenu">
         <div class="fixed inset-0 z-[9998]" @click="closeMenu" @contextmenu.prevent="closeMenu"></div>
         <div
-          class="fixed z-[9999] w-56 rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl shadow-black/50"
+          class="fixed z-[9999] w-56 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl shadow-black/50"
           :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
         >
           <div class="px-3 py-1.5 text-xs text-slate-400 truncate border-b border-slate-800 mb-1">
@@ -169,7 +176,7 @@
 
       <!-- диалог: продать всё -->
       <div v-if="sellAllOpen" class="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4" @click.self="sellAllOpen = false">
-        <div class="panel p-5 w-80">
+        <div class="panel p-5 w-80 max-w-full">
           <h3 class="font-semibold mb-1">Продать всё торговцу?</h3>
           <p class="text-xs text-slate-400 mb-4">
             {{ inventory.length }} предметов инвентаря будут проданы по номиналу за
@@ -187,7 +194,7 @@
 
       <!-- диалог: выставить на аукцион -->
       <div v-if="listItem" class="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4" @click.self="listItem = null">
-        <div class="panel p-5 w-80">
+        <div class="panel p-5 w-80 max-w-full">
           <h3 class="font-semibold mb-1">Выставить на аукцион</h3>
           <p class="text-xs text-slate-400 mb-4 truncate">{{ listItem.name }} · номинал <CoinAmount :value="listItem.value" /></p>
           <input
@@ -224,7 +231,39 @@ import ItemCard from '../components/ItemCard.vue';
 const auth = useAuthStore();
 const game = useGameStore();
 
+/**
+ * Размер ячейки сетки. Сетка фиксированная — 12 колонок, поэтому её ширина
+ * зависит только от размера ячейки:
+ *  - на телефоне 12×64px не влезают (790px при экране 360px), поэтому ячейка
+ *    ужимается под фактическую ширину колонки инвентаря;
+ *  - на 1920px сетка наоборот выглядела мелкой — увеличиваем до 80px.
+ * Ширину берём у самой колонки (ResizeObserver), а не у окна: рядом есть
+ * боковая панель карточек, и она отнимает место.
+ * Значение используется и в стилях сетки, и в расчёте попадания курсора при
+ * перетаскивании, поэтому менять его можно только здесь.
+ */
+/*
+ * Размер ячейки считает CSS (переменная --cell), а не JS:
+ *  - на телефоне 12×64px не влезают (794px при экране 360px), поэтому ячейка
+ *    ужимается под ширину окна;
+ *  - на 1920px сетка наоборот выглядела мелкой — увеличиваем до 80px.
+ * Так же сделано в «Тайном Санте», где этот приём уже работает. Значение
+ * задаётся только в одном месте (стиль .inv-grid), JS от него не зависит.
+ */
 const CELL = 64;
+
+/**
+ * Фактический размер ячейки в пикселях. CSS ужимает сетку на телефоне и
+ * увеличивает на мониторе, поэтому для расчёта попадания курсора при
+ * перетаскивании читаем значение переменной из самого элемента сетки.
+ */
+function cellPx(): number {
+  const el = gridEl.value;
+  if (!el) return CELL;
+  const v = getComputedStyle(el).getPropertyValue('--cell').trim();
+  const n = Number.parseFloat(v);
+  return Number.isFinite(n) && n > 0 ? n : CELL;
+}
 const GAP = 2;
 const PAD = 2;
 
@@ -401,11 +440,11 @@ const gridRows = computed(() => {
 const cellCount = computed(() => INV_COLS * gridRows.value);
 
 const gridStyle = computed(() => ({
-  gridTemplateColumns: 'repeat(' + INV_COLS + ', ' + CELL + 'px)',
-  gridAutoRows: CELL + 'px',
+  gridTemplateColumns: 'repeat(' + INV_COLS + ', var(--cell))',
+  gridAutoRows: 'var(--cell)',
   gap: GAP + 'px',
-  width: (INV_COLS * CELL + (INV_COLS - 1) * GAP + PAD * 2) + 'px',
-  height: (gridRows.value * CELL + (gridRows.value - 1) * GAP + PAD * 2) + 'px',
+  width: 'calc(' + INV_COLS + ' * var(--cell) + ' + ((INV_COLS - 1) * GAP + PAD * 2) + 'px)',
+  height: 'calc(' + gridRows.value + ' * var(--cell) + ' + ((gridRows.value - 1) * GAP + PAD * 2) + 'px)',
 }));
 
 function itemStyle(p: PackedItem): Record<string, string> {
@@ -478,8 +517,8 @@ function cellFromEvent(e: DragEvent): { x: number; y: number } {
   const rect = el.getBoundingClientRect();
   const px = e.clientX - rect.left - PAD;
   const py = e.clientY - rect.top - PAD;
-  const x = Math.max(0, Math.min(INV_COLS - 1, Math.floor(px / (CELL + GAP))));
-  const y = Math.max(0, Math.min(INV_ROWS - 1, Math.floor(py / (CELL + GAP))));
+  const x = Math.max(0, Math.min(INV_COLS - 1, Math.floor(px / (cellPx() + GAP))));
+  const y = Math.max(0, Math.min(INV_ROWS - 1, Math.floor(py / (cellPx() + GAP))));
   return { x, y };
 }
 
@@ -512,10 +551,10 @@ const hoverStyle = computed(() => {
   const t = hoverTarget.value;
   if (!t) return {};
   return {
-    left: t.x * (CELL + GAP) + PAD + 'px',
-    top: t.y * (CELL + GAP) + PAD + 'px',
-    width: t.w * (CELL + GAP) - GAP + 'px',
-    height: t.h * (CELL + GAP) - GAP + 'px',
+    left: t.x * (cellPx() + GAP) + PAD + 'px',
+    top: t.y * (cellPx() + GAP) + PAD + 'px',
+    width: t.w * (cellPx() + GAP) - GAP + 'px',
+    height: t.h * (cellPx() + GAP) - GAP + 'px',
   };
 });
 
@@ -667,7 +706,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/*
+ * Ячейка: на телефоне ужимается под ширину окна (минус отступы .page-wide =
+ * 32px), на 1920px растёт до 80px. Внутренние отступы сетки (PAD=2) и
+ * промежутки вычитаются в calc, чтобы 12 колонок влезали без прокрутки.
+ */
 .inv-grid {
+  --cell: min(64px, calc((100vw - 32px - 24px) / 12));
   position: relative;
   display: grid;
   background: #1e293b;
@@ -676,11 +721,16 @@ onMounted(async () => {
   padding: 2px;
 }
 .inv-cell {
-  width: 64px;
-  height: 64px;
+  width: var(--cell);
+  height: var(--cell);
   background: #0f172a;
   border: 1px solid #1e293b;
   border-radius: 2px;
+}
+@media (min-width: 1920px) {
+  .inv-grid {
+    --cell: min(80px, calc((100vw - 600px) / 12));
+  }
 }
 .inv-item {
   position: relative;

@@ -2,7 +2,7 @@
   <div class="h-screen flex flex-col">
     <TopNav />
     <div class="flex-1 min-h-0 overflow-y-auto">
-      <div class="max-w-[1500px] mx-auto p-6">
+      <div class="page-wide py-4 sm:py-6">
         <div class="mb-5">
           <h1 class="text-xl font-bold">Тайный Санта</h1>
           <p class="text-sm text-slate-400">
@@ -204,7 +204,7 @@
       class="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-4"
       @click.self="closeCycleModal"
     >
-      <div class="panel p-6 w-96 max-w-full">
+      <div class="panel p-4 sm:p-6 w-96 max-w-full">
         <h3 class="font-semibold mb-1">Итоги круга Тайного Санты</h3>
         <p class="text-xs text-slate-400 mb-4">Ящик завершил круг и принёс подарки</p>
         <div class="flex flex-col gap-3 text-sm">
@@ -775,7 +775,12 @@ onBeforeUnmount(() => {
   border-radius: 0.5rem;
   padding: 2px;
 }
-/* ячейка: 64px на десктопе, на узких экранах ужимается под ширину окна (p-6 = 48px) */
+/*
+ * Ячейка: на телефоне ужимается под ширину окна (минус отступы контейнера),
+ * на десктопе 64px, а на 1920px — 80px: сетка растёт вместе с экраном,
+ * иначе на широком мониторе она выглядит мелкой. Размер задаётся только
+ * через --cell, JS от него не зависит.
+ */
 .inv-grid {
   --cell: min(64px, calc((100vw - 48px) / 12));
 }
@@ -784,6 +789,14 @@ onBeforeUnmount(() => {
   background: #241a0a;
   border-color: #92400e;
   box-shadow: 0 0 24px rgba(180, 83, 9, 0.15);
+}
+@media (min-width: 1920px) {
+  .inv-grid {
+    --cell: min(80px, calc((100vw - 120px) / 12));
+  }
+  .santa-grid {
+    --cell: min(80px, calc((100vw - 120px) / 9));
+  }
 }
 .inv-cell {
   width: var(--cell);

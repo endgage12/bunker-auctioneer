@@ -58,16 +58,16 @@
       class="flex-1 min-h-0"
     >
       <!-- Десктоп: три колонки -->
-      <div class="hidden lg:flex h-full min-h-0 gap-4 p-4">
+      <div class="hidden lg:flex h-full min-h-0 gap-4 xl:gap-5 2xl:gap-6 p-4 2xl:p-6">
       <!-- Левая колонка: игроки -->
-      <aside class="w-80 shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
+      <aside class="w-80 xl:w-[340px] 2xl:w-[420px] shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
         <PlayersPanel :game="game" :me-id="meId" />
         <LogPanel :log="game.log" />
       </aside>
 
       <!-- Центр: стол 16x16 -->
       <main class="flex-1 min-w-0 flex flex-col min-h-0">
-        <div class="panel mb-3 py-2 px-4 text-sm shrink-0">
+        <div class="panel mb-3 py-2 px-4 2xl:text-base shrink-0">
           Текущая ожидаемая стоимость предметов на столе:
           <b class="text-amber-300 font-mono"><CoinAmount :value="tableRevealedValue" animate /></b>
           <span v-if="game.phase === 'ready'" class="text-slate-500 text-xs">
@@ -89,7 +89,7 @@
       </main>
 
       <!-- Правая колонка: особые карточки -->
-      <aside class="w-80 shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
+      <aside class="w-80 xl:w-[360px] 2xl:w-[460px] shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
         <CardsPanel :phase="game.phase" />
         <AntePanel v-if="game.phase === 'ready'" :game="game" :me-id="meId" @ante="onAnte" />
         <AuctionPanel v-if="game.phase === 'auction'" :game="game" :me-id="meId" @bid="onBid" />

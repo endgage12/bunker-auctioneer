@@ -14,7 +14,8 @@
     "smoke": "node scripts/smoke.mjs",
     "bots:sla": "node scripts/bots-sla.mjs",
     "test:e2e": "npm run test:e2e -w @auctioneer/server",
-    "check:setup": "node scripts/check-setup-order.mjs"
+    "check:setup": "node scripts/check-setup-order.mjs",
+    "check:layout": "node scripts/layout-check.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

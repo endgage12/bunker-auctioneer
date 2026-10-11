@@ -1,7 +1,7 @@
 <template>
   <div ref="rootEl" class="min-h-screen">
     <TopNav />
-    <div v-if="bank" class="max-w-5xl mx-auto p-6">
+    <div v-if="bank" class="page py-4 sm:py-6">
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <!-- Банк -->
         <div class="panel p-5">

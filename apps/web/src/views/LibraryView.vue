@@ -1,7 +1,7 @@
 <template>
   <div class="h-screen flex flex-col">
     <TopNav />
-    <div class="flex-1 min-h-0 flex max-w-7xl w-full mx-auto">
+    <div class="flex-1 min-h-0 flex page-wide px-0">
       <!-- Сайдбар: разделы -->
       <aside class="hidden md:flex w-64 shrink-0 flex-col border-r border-slate-800/70 bg-slate-950/60">
         <div class="px-4 pt-4 pb-2 text-[11px] uppercase tracking-wider text-slate-500">Разделы</div>
@@ -27,7 +27,7 @@
 
       <!-- Контент -->
       <main ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto" @scroll="onScroll">
-        <div class="max-w-3xl mx-auto px-6 py-8 pb-16">
+        <div class="max-w-3xl 2xl:max-w-4xl mx-auto px-4 sm:px-6 py-8 pb-16">
           <div class="mb-8">
             <h1 class="text-2xl font-bold mb-1">Библиотека</h1>
             <p class="text-sm text-slate-400">

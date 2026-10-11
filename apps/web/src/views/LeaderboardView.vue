@@ -1,7 +1,7 @@
 <template>
   <div ref="rootEl" class="min-h-screen">
     <TopNav />
-    <div class="max-w-3xl mx-auto p-4 sm:p-6">
+    <div class="page py-4 sm:py-6">
       <div class="panel p-5">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
           <h2 class="font-semibold">Таблица лидеров</h2>
@@ -28,9 +28,10 @@
           <div
             v-for="e in entries"
             :key="e.id"
-            class="leader-row flex items-center gap-3 px-2 py-2 rounded-lg"
+            class="leader-row rounded-lg"
             :class="e.id === me?.id ? 'leader-row-me' : ''"
           >
+          <div class="flex items-center gap-2 sm:gap-3 px-2 pt-2 pb-1 sm:py-2">
             <div class="w-9 shrink-0 text-center font-mono font-bold" :class="rankClass(e.rank)">
               {{ rankLabel(e.rank) }}
             </div>
@@ -60,15 +61,24 @@
             >
               бот
             </span>
-            <div class="shrink-0 text-right">
-              <div class="font-mono text-amber-300 text-sm leading-tight">
+            <div class="text-right">
+              <div class="font-mono text-amber-300 text-sm leading-tight whitespace-nowrap">
                 <CoinAmount :value="e.netWorth" />
               </div>
-              <div class="text-[10px] text-slate-500 leading-tight">
+              <!--
+                Разбивка состояния: на телефоне длинная строка не помещалась в
+                ряд (место, аватар, имя, состояние), поэтому на узком экране
+                детали уходят на отдельную строку под именем.
+              -->
+              <div class="hidden sm:block text-[10px] text-slate-500 leading-tight whitespace-nowrap">
                 наличные <CoinAmount :value="e.cash" /> · предметы <CoinAmount :value="e.inventoryValue" /> ·
                 побед {{ e.gamesWon }}
               </div>
             </div>
+          </div>
+          <div class="sm:hidden -mt-1 mb-1 pl-11 pr-2 text-[10px] text-slate-500">
+            наличные <CoinAmount :value="e.cash" /> · предметы <CoinAmount :value="e.inventoryValue" /> ·
+            побед {{ e.gamesWon }}
           </div>
         </div>
 

@@ -161,18 +161,27 @@ let ro: ResizeObserver | null = null;
 const naturalW = computed(() => props.board.w * CELL + (props.board.w - 1) * GAP + PAD * 2);
 const naturalH = computed(() => props.board.h * CELL + (props.board.h - 1) * GAP + PAD * 2);
 
+/**
+ * Предел увеличения платы. До 1440px плата только уменьшается (вписывается),
+ * на широком мониторе её можно увеличить — иначе на 1920px она выглядела
+ * мелкой посреди пустой области. Верхняя граница подобрана так, чтобы плата
+ * не упиралась в панели по бокам.
+ */
+const maxScale = ref(1);
+
 function measure(): void {
   const el = viewport.value;
   if (!el) return;
   const w = el.clientWidth;
   const h = el.clientHeight;
   if (w <= 0) return;
+  maxScale.value = window.innerWidth >= 1440 ? 1.35 : 1;
   const s =
     props.fit === 'width'
-      ? Math.min(1, w / naturalW.value)
+      ? Math.min(maxScale.value, w / naturalW.value)
       : h <= 0
-        ? Math.min(1, w / naturalW.value)
-        : Math.min(1, w / naturalW.value, h / naturalH.value);
+        ? Math.min(maxScale.value, w / naturalW.value)
+        : Math.min(maxScale.value, w / naturalW.value, h / naturalH.value);
   if (Math.abs(s - fitScale.value) > 0.0005) fitScale.value = s;
 }
 
@@ -184,8 +193,11 @@ onMounted(() => {
     ro = new ResizeObserver(() => measure());
     ro.observe(viewport.value);
   }
+  // при переходе через 1440px меняется допустимое увеличение платы
+  window.addEventListener('resize', measure);
 });
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', measure);
   ro?.disconnect();
   ro = null;
   for (const t of frameTweens) t.kill();

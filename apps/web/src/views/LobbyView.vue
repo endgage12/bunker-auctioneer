@@ -1,15 +1,15 @@
 <template>
   <div class="min-h-screen">
     <TopNav />
-    <div class="max-w-5xl mx-auto p-4 sm:p-6">
+    <div class="page py-4 sm:py-6">
       <div v-if="profile" ref="headEl" class="text-sm text-slate-400 mb-6 text-center">
         Сыграно игр: {{ profile.gamesPlayed }} · Побед: {{ profile.gamesWon }} ·
         <span class="text-amber-300"><CoinAmount :value="profile.cash" /></span> на руках
       </div>
 
       <!-- Прогресс игрока: ранг, путь до следующего, серия побед -->
-      <div v-if="progress" ref="rankEl" class="panel p-4 mb-6 max-w-2xl mx-auto">
-        <div class="flex items-center gap-3 mb-3">
+      <div v-if="progress" ref="rankEl" class="panel mb-6 p-4 lg:flex lg:items-center lg:gap-6">
+        <div class="flex items-center gap-3 mb-3 lg:mb-0 lg:flex-1 min-w-0">
           <span ref="rankIconEl" class="text-3xl leading-none">{{ progress.rankIcon }}</span>
           <div class="min-w-0 flex-1">
             <div class="flex items-baseline gap-2">
@@ -28,7 +28,7 @@
           </div>
         </div>
 
-        <div v-if="progress.next" class="space-y-1">
+        <div v-if="progress.next" class="space-y-1 lg:flex-1 lg:max-w-xl">
           <div class="flex justify-between text-[11px] text-slate-400">
             <span>до ранга «{{ progress.next.name }}»</span>
             <span class="font-mono"><CoinAmount :value="progress.next.remaining" /></span>
@@ -57,19 +57,24 @@
         </div>
       </div>
 
-      <h1 ref="titleEl" class="text-center font-bold text-2xl sm:text-3xl mb-1">Выберите зал</h1>
-      <p class="text-center text-sm text-slate-400 mb-8">
+      <h1 ref="titleEl" class="text-center font-bold text-2xl sm:text-3xl 2xl:text-4xl mb-1">Выберите зал</h1>
+      <p class="text-center text-sm text-slate-400 mb-5 sm:mb-8 2xl:text-base">
         Плата за вход фиксирована, а ценность стола разыгрывается заранее — до первой ставки
       </p>
 
-      <!-- Три сословия: чем дороже вход, тем богаче стол -->
-      <div ref="tiersEl" class="grid gap-4 sm:grid-cols-3">
+      <!--
+        Раскладка: залы — главное действие, поэтому занимают основную ширину.
+        Вход по коду — второстепенное, уходит в боковую колонку от 1200px.
+        На телефоне порядок обратный: сначала залы, потом код (order-first).
+      -->
+      <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_420px] 2xl:gap-8">
+        <div ref="tiersEl" class="grid gap-4 sm:grid-cols-3 2xl:gap-6 order-first">
         <button
           v-for="t in tiers"
           :key="t.id"
           :ref="(el) => setCardRef(t.id, el as HTMLElement | null)"
           type="button"
-          class="tier-card panel relative overflow-hidden p-5 text-left transition disabled:cursor-not-allowed"
+          class="tier-card panel relative overflow-hidden p-4 sm:p-5 2xl:p-6 text-left transition disabled:cursor-not-allowed"
           :class="canPlay(t) ? 'hover:-translate-y-1' : 'opacity-70'"
           :disabled="busy || !canPlay(t)"
           :data-tier="t.id"
@@ -80,7 +85,7 @@
           <span class="tier-glow" :style="{ background: t.color }" aria-hidden="true"></span>
 
           <div class="flex items-center justify-between gap-2 mb-3">
-            <span class="text-3xl">{{ t.icon }}</span>
+            <span class="text-3xl 2xl:text-4xl">{{ t.icon }}</span>
             <span
               class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
               :style="{ borderColor: t.color, color: t.color, borderWidth: '1px' }"
@@ -89,7 +94,7 @@
             </span>
           </div>
 
-          <h2 class="font-bold text-lg mb-1">{{ t.name }}</h2>
+          <h2 class="font-bold text-lg 2xl:text-xl mb-1">{{ t.name }}</h2>
           <p class="text-xs text-slate-400 mb-3 leading-relaxed">{{ t.tagline }}</p>
 
           <div class="rounded-lg bg-slate-800/60 px-3 py-2 mb-2">
@@ -106,32 +111,41 @@
             <span v-else class="text-emerald-300">доступен</span>
           </div>
         </button>
+        </div>
+
+        <!-- Боковая колонка: вход по коду и правила подбора -->
+        <aside class="flex flex-col gap-4">
+          <div class="panel p-4 sm:p-5">
+            <h2 class="font-semibold text-sm mb-1.5">Вход по коду комнаты</h2>
+            <p class="text-[11px] text-slate-500 mb-3">
+              Если друг уже собрал стол, введите его код — попадёте в тот же зал.
+            </p>
+            <form class="flex gap-2" @submit.prevent="joinRoom">
+              <input
+                v-model="code"
+                class="input-dark font-mono uppercase tracking-widest text-center min-w-0 flex-1"
+                maxlength="4"
+                placeholder="КОД"
+                aria-label="Код комнаты"
+              />
+              <button type="submit" class="btn-ghost shrink-0" :disabled="busy || code.length !== 4">Войти</button>
+            </form>
+          </div>
+
+          <div class="panel p-4 sm:p-5">
+            <h2 class="font-semibold text-sm mb-2">Как идёт подбор</h2>
+            <ul class="text-[11px] text-slate-400 flex flex-col gap-1.5 leading-relaxed">
+              <li>Партия начнётся, как только наберётся 4 игрока.</li>
+              <li>Если игроков меньше, но каждый нажал «Я готов/а» — игра начнётся и без полного состава.</li>
+              <li>Ценность стола определяется до начала торгов и не зависит от того, сколько внесли игроки.</li>
+            </ul>
+          </div>
+        </aside>
       </div>
 
       <p v-if="error" ref="errorEl" class="text-rose-400 text-sm mt-4 text-center">{{ error }}</p>
       <p v-if="busy" class="text-amber-300 text-sm mt-4 text-center">Подбираем стол…</p>
 
-      <div class="flex items-center gap-3 my-8">
-        <div class="h-px bg-slate-700 flex-1"></div>
-        <span class="text-xs text-slate-500">или войти по коду комнаты</span>
-        <div class="h-px bg-slate-700 flex-1"></div>
-      </div>
-
-      <form class="flex gap-2 justify-center" @submit.prevent="joinRoom">
-        <input
-          v-model="code"
-          class="input-dark font-mono uppercase tracking-widest text-center w-40"
-          maxlength="4"
-          placeholder="КОД"
-        />
-        <button type="submit" class="btn-ghost shrink-0" :disabled="busy || code.length !== 4">Войти</button>
-      </form>
-
-      <p class="text-xs text-slate-500 text-center mt-6 leading-relaxed">
-        Партия начнётся, как только наберётся 4 игрока. Если игроков меньше, но каждый нажал
-        «Я готов/а» — игра начнётся и без полного состава.<br />
-        Ценность стола определяется до начала торгов и не зависит от того, сколько внесли игроки.
-      </p>
     </div>
   </div>
 </template>
@@ -359,6 +373,9 @@ onBeforeUnmount(() => {
 }
 .tier-card {
   border: 1px solid rgba(30, 41, 59, 1);
+  /* свечение декоративное и позиционировано за границами — обрезаем его,
+     иначе на телефоне оно создаёт горизонтальную прокрутку страницы */
+  overflow: hidden;
 }
 .tier-glow {
   position: absolute;

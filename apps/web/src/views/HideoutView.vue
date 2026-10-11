@@ -1,7 +1,7 @@
 <template>
   <div ref="rootEl" class="min-h-screen">
     <TopNav />
-    <div class="max-w-6xl mx-auto p-6">
+    <div class="page-wide py-4 sm:py-6">
       <div class="flex items-end justify-between mb-6">
         <div>
           <h1 class="text-xl font-bold">Сеты</h1>
@@ -22,12 +22,12 @@
       </div>
 
       <!-- Мастерская: крафт билетов колеса из предметов одного качества -->
-      <div class="mb-6 max-w-2xl">
+      <div class="mb-6 max-w-3xl">
         <CraftPanel ref="craftPanel" @crafted="onCrafted" />
       </div>
 
       <div v-if="!hideout" class="text-slate-400">Загрузка…</div>
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6">
         <SetCard
           v-for="set in hideout.sets"
           :key="set.setId"

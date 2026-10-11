@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen">
     <TopNav />
-    <div class="max-w-3xl mx-auto p-6">
+    <div class="page py-4 sm:py-6">
       <div v-if="loading" class="panel p-8 text-center text-slate-400">Загрузка профиля…</div>
 
       <div v-else-if="notFound" class="panel p-8 text-center">

@@ -24,7 +24,7 @@
       </div>
     </PopoverTrigger>
 
-    <PopoverContent class="w-60">
+    <PopoverContent class="w-60 max-w-[calc(100vw-1.5rem)]">
       <div class="flex items-center gap-2 mb-1.5">
         <span class="inline-block h-2.5 w-2.5 rounded-full shrink-0" :style="{ background: rarityColor }"></span>
         <span class="text-xs text-slate-400">{{ RARITY_LABEL[rarity] }}</span>

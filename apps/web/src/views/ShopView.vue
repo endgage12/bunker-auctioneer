@@ -2,7 +2,7 @@
   <div class="h-screen flex flex-col">
     <TopNav />
     <div
-      class="max-w-6xl w-full mx-auto p-4 sm:p-6 flex flex-col lg:flex-row gap-6 flex-1 min-h-0 overflow-y-auto"
+      class="page-wide w-full py-4 sm:py-6 flex flex-col lg:flex-row xl:grid xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,640px)_minmax(0,1fr)] gap-6 xl:gap-8 flex-1 min-h-0 overflow-y-auto"
     >
       <!-- Левая колонка: билет, комплекты, коллекция -->
       <aside class="lg:w-96 shrink-0 flex flex-col gap-4">
@@ -151,7 +151,7 @@
       class="fixed inset-0 z-[10000] bg-black/75 flex items-center justify-center p-4"
       @click.self="closeResult"
     >
-      <div class="panel p-6 w-80 text-center result-pop relative overflow-hidden">
+      <div class="panel p-6 w-80 max-w-full text-center result-pop relative overflow-hidden">
         <div
           class="pointer-events-none absolute inset-0"
           :style="resultGlowStyle"

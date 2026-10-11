@@ -1,7 +1,7 @@
 <template>
   <div ref="rootEl" class="min-h-screen">
     <TopNav />
-    <div class="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+    <div class="page-wide py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-5 xl:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6 items-start">
       <!-- Мой инвентарь -->
       <div class="lg:col-span-2 flex flex-col gap-6">
         <div class="panel p-5">
@@ -84,7 +84,7 @@
           <span class="text-xs text-slate-400">лотов: {{ filteredListings.length }}</span>
         </div>
         <div class="flex flex-col sm:flex-row gap-3 mb-4">
-          <input v-model="search" class="input-dark sm:max-w-xs" placeholder="Поиск по названию или продавцу…" />
+          <input v-model="search" class="input-dark w-full sm:max-w-xs xl:max-w-sm" placeholder="Поиск по названию или продавцу…" />
           <div class="flex flex-wrap gap-1 items-center">
             <button
               v-for="r in RARITY_ORDER"

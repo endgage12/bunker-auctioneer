@@ -104,14 +104,28 @@ describe('анализаторы в движке партии', () => {
     expect(hiddenHints).toBeGreaterThan(0);
   });
 
-  it('подсказки накапливаются и не уходят другим игрокам', () => {
+  it('подсказки накапливаются по раундам и не уходят другим игрокам', () => {
     const g = makeGame(
       [seed('a', 200_000, []), seed('b', 200_000, [])],
       { rng: mulberry32(11) },
     );
-    expect(g.useAnalyzerCard('a', 2)).toBeNull();
-    expect(g.useAnalyzerCard('a', 4)).toBeNull();
-    expect(g.personalSnapshot('a')?.rarityHints.length).toBe(6);
+    // за один раунд — только одна карточка (правило игры)
+    expect(g.useAnalyzerCard('a', 2), 'первая карточка').toBeNull();
+    expect(g.useAnalyzerCard('a', 4), 'вторая в том же раунде запрещена').not.toBeNull();
+    expect(g.personalSnapshot('a')?.rarityHints.length, 'подсказки первой карточки').toBe(2);
+    expect(g.personalSnapshot('b'), 'подсказки не уходят другим').toBeNull();
+
+    // доходим до следующего раунда и применяем ещё одну
+    g.submitBid('a', 0);
+    g.submitBid('b', 0);
+    for (let i = 0; i < 20; i++) {
+      g.advance();
+      const a = g.snapshot().auction;
+      if (a?.round === 2 && a.phase === 'bid') break;
+    }
+    expect(g.useAnalyzerCard('a', 2), 'в новом раунде карточка снова доступна').toBeNull();
+    // подсказки накапливаются: 2 из первого раунда + 2 из второго
+    expect(g.personalSnapshot('a')?.rarityHints.length, 'подсказки накопились').toBe(4);
     expect(g.personalSnapshot('b')).toBeNull();
   });
 

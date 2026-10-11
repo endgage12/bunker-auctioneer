@@ -338,13 +338,20 @@ export class BotPool {
       clearHumanWaitIfStale();
       const reserve = this.reserveBots();
       const botsPerRoom = BOTS_PER_LOBBY + 1; // хост + подсаженные
-      const byReserve = Math.floor(this.freeCount() / botsPerRoom) - RESERVE_ROOMS;
+      // Резерв держим только из играбельных ботов: обедневшие в него не входят,
+      // иначе они блокируют открытие комнат.
+      const playable = this.freeCount();
+      // Резерв не может съедать весь парк: если играбельных ботов мало (парк
+      // обеднел), держим под живого игрока не больше половины — иначе подбор
+      // встаёт совсем (11 свободных при резерве 11 → открываем 0).
+      const reserveRooms = Math.min(RESERVE_ROOMS, Math.floor(playable / botsPerRoom / 2));
+      const byReserve = Math.max(0, Math.floor(playable / botsPerRoom) - reserveRooms);
       let toOpen = Math.min(roomTarget - hosted, byReserve);
       this.maybeStatusLog(hosted, toOpen);
       // ВАЖНО: резерв пересчитываем на каждой итерации. Иначе цикл за один тик
       // забирает всех свободных ботов, и живому игроку не остаётся соперников.
       while (toOpen > 0) {
-        if (this.freeCount() <= reserve) break;
+        if (this.freeCount() <= Math.min(reserve, Math.max(0, playable - botsPerRoom))) break;
         const host = this.claim();
         if (!host) break;
         const code = await this.sendToRoom(host, null);
@@ -377,7 +384,8 @@ export class BotPool {
     this.log(
       'статус: комнат=' + hosted + ' всего=' + this.entries.length +
         ' в партиях=' + inGame + ' в лобби=' + inLobby + ' на паузе=' + paused +
-        ' свободны=' + free + ' бронь=' + this.reserved.size +
+        ' свободны=' + free + ' без денег=' + this.brokeEntries().length +
+        ' бронь=' + this.reserved.size +
         ' (сумма ' + (inGame + inLobby + paused + free + this.reserved.size) + ')' +
         ' ждут людей=' + humansWaiting() + ' откроем=' + toOpen,
     );
@@ -412,6 +420,10 @@ export class BotPool {
    * Реально свободные боты: не в партии, не в лобби, не на паузе и не занятые
    * текущей асинхронной операцией. Именно это число — запас под живых игроков.
    */
+  /**
+   * Боты, свободные для новой партии: не в комнате, не на паузе и с деньгами
+   * на вход. Именно они идут в подбор.
+   */
   private freeEntries(): BotEntry[] {
     return this.entries.filter(
       (e) => !this.reserved.has(e.accountId) && e.bot.available && e.bot.wantsToPlay(e.cash),
@@ -420,6 +432,18 @@ export class BotPool {
 
   private freeCount(): number {
     return this.freeEntries().length;
+  }
+
+  /**
+   * Свободные, но БЕЗ денег на вход. Они не участвуют в подборе, зато их можно
+   * отправить к торговцу за наличными, поэтому резерв под живых игроков по ним
+   * считать нельзя: иначе при обеднении парка резерв «съедает» всех играбельных
+   * ботов и матчмейкинг встаёт (свободных 11, резерв тоже 11 → открываем 0).
+   */
+  private brokeEntries(): BotEntry[] {
+    return this.entries.filter(
+      (e) => !this.reserved.has(e.accountId) && e.bot.available && e.bot.needsCash(e.cash),
+    );
   }
 
   /**

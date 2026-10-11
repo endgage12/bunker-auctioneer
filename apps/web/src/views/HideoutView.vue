@@ -21,6 +21,11 @@
         </div>
       </div>
 
+      <!-- Мастерская: крафт билетов колеса из предметов одного качества -->
+      <div class="mb-6 max-w-2xl">
+        <CraftPanel ref="craftPanel" @crafted="onCrafted" />
+      </div>
+
       <div v-if="!hideout" class="text-slate-400">Загрузка…</div>
       <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         <SetCard
@@ -48,6 +53,7 @@ import { useGameStore } from '../stores/game';
 import TopNav from '../components/TopNav.vue';
 import { gsap, motionOK, shake } from '../lib/animations';
 import SetCard from '../components/SetCard.vue';
+import CraftPanel from '../components/CraftPanel.vue';
 
 const auth = useAuthStore();
 const game = useGameStore();
@@ -121,6 +127,13 @@ async function removeItem(itemId: string | undefined): Promise<void> {
   } catch (e) {
     game.pushToast((e as Error).message, 'error');
   }
+}
+
+/** После крафта обновляем инвентарь: три предмета ушли, билет пришёл */
+const craftPanel = ref<{ reload: () => Promise<void> } | null>(null);
+
+async function onCrafted(): Promise<void> {
+  await refresh();
 }
 
 async function doTransmute(): Promise<void> {

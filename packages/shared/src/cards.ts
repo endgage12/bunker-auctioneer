@@ -121,6 +121,45 @@ export const CARD_DEFS: CardDef[] = [
 export const WHEEL_TICKET_DEF_ID = 'white-0';
 export const WHEEL_TICKET_NAME = 'Пыльная ваза';
 
+// ---------- крафт ----------
+
+/** Сколько предметов одного качества нужно на крафт */
+export const CRAFT_ITEMS_PER_RECIPE = 3;
+
+export interface CraftRecipe {
+  id: string;
+  /** что получится */
+  name: string;
+  desc: string;
+  /** требуемое качество всех трёх предметов */
+  fromRarity: Rarity;
+  icon: string;
+}
+
+/**
+ * Рецепты крафта: три предмета ОДНОГО качества категории превращаются
+ * в один предмет. Отдельно стоит билет колеса фортуны — «Пыльная ваза»:
+ * её делают из любых трёх предметов одного цвета, поэтому она доступна
+ * на любом этапе, а не только когда повезло с редкими предметами.
+ *
+ * Порядок редкостей — от белого к красному, поэтому «следующее качество»
+ * определяется по RARITY_ORDER.
+ */
+export const CRAFT_RECIPES: CraftRecipe[] = [
+  { id: 'vase-white', name: WHEEL_TICKET_NAME, desc: 'билет колеса фортуны', fromRarity: 'white', icon: '🏺' },
+  { id: 'vase-green', name: WHEEL_TICKET_NAME, desc: 'билет колеса фортуны', fromRarity: 'green', icon: '🏺' },
+  { id: 'vase-blue', name: WHEEL_TICKET_NAME, desc: 'билет колеса фортуны', fromRarity: 'blue', icon: '🏺' },
+  { id: 'vase-purple', name: WHEEL_TICKET_NAME, desc: 'билет колеса фортуны', fromRarity: 'purple', icon: '🏺' },
+  { id: 'vase-gold', name: WHEEL_TICKET_NAME, desc: 'билет колеса фортуны', fromRarity: 'gold', icon: '🏺' },
+  { id: 'vase-yellow', name: WHEEL_TICKET_NAME, desc: 'билет колеса фортуны', fromRarity: 'yellow', icon: '🏺' },
+  { id: 'vase-red', name: WHEEL_TICKET_NAME, desc: 'билет колеса фортуны', fromRarity: 'red', icon: '🏺' },
+];
+
+/** Рецепт крафта вазы для указанного качества */
+export function vaseRecipeFor(rarity: Rarity): CraftRecipe | undefined {
+  return CRAFT_RECIPES.find((r) => r.fromRarity === rarity);
+}
+
 /** Продолжительность кручения колеса фортуны, мс (по заданию — 5 секунд) */
 export const WHEEL_SPIN_MS = 5_000;
 

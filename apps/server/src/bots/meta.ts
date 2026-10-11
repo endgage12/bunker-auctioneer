@@ -1,6 +1,7 @@
 // Мета-игра бота между партиями: торговец, барахолка, колесо фортуны,
 // усилители, сеты и «Тайный Санта». Всё — через обычный REST API,
 // то есть теми же действиями, что доступны человеку.
+import { CRAFT_ITEMS_PER_RECIPE, findCard } from '@auctioneer/shared';
 import type { BotCharacter, InventoryRow, MarketListing, Profile } from '@auctioneer/shared';
 import type { Rng } from './brain';
 import { BOT_MIN_CASH } from './options';
@@ -158,10 +159,78 @@ export async function botMetaGame(
     }
   }
 
-  // 7. Трансмутация алхимика (суточная) — если есть три белых предмета
+  // 7. Особые карточки: бот играет ими в партии, поэтому следит за запасом.
+  //    Нет карточек — идёт покупать на общий рынок, а если их никто не продаёт,
+  //    крафтит билет колеса из трёх предметов одного качества (как игрок).
+  await topUpCards(origin, token, me, rng);
+
+  // 8. Трансмутация алхимика (суточная) — если есть три белых предмета
   if (rng() < 0.2) {
     await post(origin, token, '/api/hideout/transmute');
   }
+}
+
+/** Сколько анализаторов бот держит про запас */
+const BOT_CARD_STOCK_TARGET = 2;
+/** Во сколько бот оценивает карточку: сила важнее, поэтому рост степенной */
+function cardWorth(power: number): number {
+  return Math.round(12_000 * Math.pow(1.8, Math.max(1, power) - 1));
+}
+
+/**
+ * Дозакупка особых карточек. Порядок как у живого игрока: сначала посмотреть,
+ * что продают на рынке, и купить по разумной цене; если предложения нет или
+ * цены завышены — сделать билет колеса крафтом из своих предметов.
+ */
+async function topUpCards(
+  origin: string,
+  token: string,
+  me: Profile,
+  rng: Rng,
+): Promise<void> {
+  // Сначала деньги на вход: бот без наличных не должен тратиться на карточки.
+  // Продажей хлама занимается ветка выше, а пул видит needsCash и отправляет
+  // бота к торговцу вне партии.
+  if (me.cash < BOT_MIN_CASH) return;
+
+  const cards = await get<Array<{ cardId: string; count: number }>>(origin, token, '/api/cards');
+  const analyzers = (cards ?? []).filter((c) => findCard(c.cardId)?.setId === 'analyzers');
+  const stock = analyzers.reduce((sum, c) => sum + c.count, 0);
+  if (stock >= BOT_CARD_STOCK_TARGET) return;
+
+  // 1. Рынок карточек: берём самый дешёвый лот в пределах своей оценки
+  const listings = await get<Array<{ id: string; cardId: string; price: number; mine: boolean }>>(
+    origin,
+    token,
+    '/api/market/cards',
+  );
+  const wanted = (listings ?? [])
+    .filter((l) => !l.mine && findCard(l.cardId)?.setId === 'analyzers')
+    .filter((l) => l.price <= cardWorth(findCard(l.cardId)?.power ?? 1) * 1.5)
+    .sort((a, b) => a.price - b.price);
+  const pick = wanted[0];
+  // держим запас наличных: карточка не должна объедать банк бота
+  if (pick && me.cash > pick.price * 2 + BOT_MIN_CASH) {
+    const ok = await post(origin, token, '/api/market/cards/buy', { listingId: pick.id });
+    if (ok) return;
+  }
+
+  // 2. Крафт билета: три предмета одного качества. Берём самое дешёвое
+  //    качество, которого хватает с запасом, чтобы не пустить в расход
+  //    единственные ценные вещи.
+  const craft = await get<{ options?: Array<{ rarity: string; available: number; ready: boolean }> }>(
+    origin,
+    token,
+    '/api/craft',
+  );
+  const options = (craft?.options ?? []).filter((o) => o.ready && o.available >= CRAFT_ITEMS_PER_RECIPE + 1);
+  // белое качество первым: это расходный материал
+  const rarity = options.find((o) => o.rarity === 'white') ?? options[0];
+  if (!rarity) return;
+  const made = await post(origin, token, '/api/craft/vase', { rarity: rarity.rarity });
+  if (!made) return;
+  // 3. Сразу прокрутить колесо: билет и был целью
+  if (rng() < 0.9) await post(origin, token, '/api/shop/spin');
 }
 
 function cheapest(inventory: InventoryRow[]): InventoryRow | undefined {

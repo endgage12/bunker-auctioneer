@@ -63,7 +63,19 @@ export function estimateTableValue(state: PublicGame): number {
   // при малой доле раскрытого оценка шумная — человек тоже гадает
   const raw = a.revealedValue / Math.max(0.12, share);
   // небольшой бонус за «неоткрытое»: чаще всего в столе есть дорогие предметы
-  return Math.round(raw * 1.08);
+  const bySample = raw * 1.08;
+
+  // Объявленная залом ценность — открытая информация: её показывают и человеку
+  // в интерфейсе зала. Раньше бот оценивал стол только по раскрытой части, и на
+  // столе из дешёвых предметов выборка в 25% давала оценку в разы выше реальной:
+  // боты переплачивали, средний профит выходил −28к за партию, и парк разорялся.
+  // Смешиваем объявленную ценность с оценкой по выборке: знание точное, но
+  // насколько стол «набит», бот всё равно домысливает.
+  const declared = state.tableValue ?? 0;
+  if (declared > 0) {
+    return Math.round(declared * 0.75 + bySample * 0.25);
+  }
+  return Math.round(bySample);
 }
 
 /**
@@ -95,8 +107,17 @@ export function willingnessToPay(
   // в ранних раундах бот не готов платить всё: раунд 5 — единственный «решающий»
   const roundFactor = info ? Math.min(1, 0.55 + info.round * 0.09) : 1;
 
+  // Жёсткий потолок — объявленная залом ценность стола: платить больше номинала
+  // бессмысленно, предметы стоят ровно столько. Раньше множители риска, жадности
+  // и амбиции перемножались, и 90% столов уходило дороже своей ценности
+  // (в среднем на 26к): боты разорялись, а экономика парка уходила в минус.
+  // Азарт остаётся — он влияет на то, КАК БЛИЗКО бот подходит к номиналу,
+  // а не на готовность переплатить.
+  const declared = state.tableValue ?? 0;
+  const nominal = declared > 0 ? declared : estimate;
   const budget = me.cash;
-  return Math.max(0, Math.min(budget, Math.round(estimate * base * greed * ambition * roundFactor)));
+  const want = estimate * base * greed * ambition * roundFactor;
+  return Math.max(0, Math.min(budget, nominal, Math.round(want)));
 }
 
 /** Круглая сумма «по-человечески»: 47 300 → 45 000 или 50 000 */
@@ -194,6 +215,9 @@ export function decideBid(
   amount = roundAmount(amount, rng);
   // «+1» поверх круглой суммы — как делают люди в спешке
   if (rng() < 0.18) amount += 1;
+  // Потолок проверяем ПОСЛЕ округления: шаг в 50 000 задирал ставку выше
+  // готовности платить (и выше номинала стола) в трети партий.
+  amount = Math.min(amount, threshold);
   amount = Math.max(0, Math.min(me.cash, Math.floor(amount)));
   if (amount === 0) {
     return { value: { pass: true, amount: 0 }, delayMs: reactionDelay(character, rng) };

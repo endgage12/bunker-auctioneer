@@ -1,7 +1,7 @@
 // Один бот: сокет, лобби, партия, мета-игра между партиями.
 // Бот не имеет доступа к внутренностям движка — только публичный снимок состояния.
 import type { BotCharacter, PublicGame, PublicPlayer, PublicTier, TierDef } from '@auctioneer/shared';
-import { sessionGames, sessionPauseMs, TIERS, TIER_IDS, tierUnlockedByRank } from '@auctioneer/shared';
+import { findCard, sessionGames, sessionPauseMs, TIERS, TIER_IDS, tierUnlockedByRank } from '@auctioneer/shared';
 import { BotClient } from './client';
 import {
   commentOnResult,
@@ -128,7 +128,7 @@ export class Bot {
    * на пару входов — иначе первый же проигрыш выбрасывает из игры.
    */
   pickTier(cash: number): TierDef {
-    let best = TIERS.bronze;
+    let best: TierDef | null = null;
     for (const id of TIER_IDS) {
       const tier = TIERS[id];
       // Мало иметь деньги: зал открывается ещё и по рангу. Без этой проверки
@@ -136,7 +136,10 @@ export class Bot {
       if (!tierUnlockedByRank(tier.id, this.lastKnownWinnings)) continue;
       if (cash >= tier.entry + BOT_ENTRY_RESERVE) best = tier;
     }
-    return best;
+    // Если на достойный зал не хватает, идём в младший: пусть сервер скажет
+    // «нужно 10 000» — это сигнал пулу отправить бота к торговцу за деньгами.
+    // Без этого бот с 50к выбирал серебро, получал отказ по рангу и простаивал.
+    return best ?? TIERS.bronze;
   }
 
   /** Отправить бота в лобби выбранного зала. Возвращает код комнаты. */
@@ -337,9 +340,12 @@ export class Bot {
     if (me.passed) return;
     this.actedRound = key;
 
-    if (shouldUseAnalyzer(state, this.character, this.analyzerUses, this.deps.rng)) {
-      const cards = this.deps.analyzerCardIds();
-      const cardId = cards[0];
+    // Одна особая карточка за раунд — то же правило, что и у игрока.
+    // Сервер его тоже проверяет, но бот не должен даже пытаться: иначе
+    // он жёг бы карточки вслепую и получал отказ.
+    const alreadyUsed = (state.players.find((p) => p.id === me.id)?.cardsUsedThisRound ?? 0) > 0;
+    if (!alreadyUsed && shouldUseAnalyzer(state, this.character, this.analyzerUses, this.deps.rng)) {
+      const cardId = this.pickAnalyzerCard();
       if (cardId) {
         this.analyzerUses += 1;
         setTimeout(() => {
@@ -360,6 +366,17 @@ export class Bot {
       this.client?.bid(decision.value.pass ? 0 : decision.value.amount);
       if (BOT_CHAT && decision.say) this.say(decision.say);
     }, decision.delayMs);
+  }
+
+  /**
+   * Самый сильный анализатор из руки: раскрыть больше предметов выгоднее,
+   * а слабые карточки лучше сохранить на потом. Если карточек несколько
+   * копий — берём ту, у которой выше сила.
+   */
+  private pickAnalyzerCard(): string | undefined {
+    const ids = this.deps.analyzerCardIds();
+    if (ids.length === 0) return undefined;
+    return [...ids].sort((a, b) => (findCard(b)?.power ?? 0) - (findCard(a)?.power ?? 0))[0];
   }
 
   private say(text: string): void {

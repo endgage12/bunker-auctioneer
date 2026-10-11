@@ -14,7 +14,7 @@ import {
   VENDOR_RATE,
 } from '@auctioneer/shared';
 import { generateSantaReward, INV_COLS, INV_ROWS, ITEM_CATALOG, MARKET_LISTING_TTL_MS, SANTA_COLS, SANTA_MIN_ITEMS, SANTA_ROWS, SETS, marketFee, santaRewardCount, santaTimerMs } from '@auctioneer/shared';
-import { CARD_DEFS, RARITY_LABEL, RARITY_ORDER, WHEEL_TICKET_DEF_ID, WHEEL_TICKET_NAME, findCard, pickCardByWeight } from '@auctioneer/shared';
+import { CARD_DEFS, CRAFT_ITEMS_PER_RECIPE, RARITY_LABEL, MARKET_FEE_PCT, RARITY_ORDER, WHEEL_TICKET_DEF_ID, WHEEL_TICKET_NAME, findCard, pickCardByWeight } from '@auctioneer/shared';
 import type {
   AdminBank,
   BankTx,
@@ -170,6 +170,14 @@ const SCHEMA = [
   '  user_id TEXT NOT NULL,',
   '  card_id TEXT NOT NULL,',
   '  created_at INTEGER NOT NULL',
+  ');',
+  'CREATE TABLE IF NOT EXISTS card_listings (',
+  '  id TEXT PRIMARY KEY,',
+  '  card_id TEXT NOT NULL,',
+  '  seller_id TEXT NOT NULL,',
+  '  price INTEGER NOT NULL,',
+  '  created_at INTEGER NOT NULL,',
+  '  expires_at INTEGER NOT NULL',
   ');',
   'CREATE TABLE IF NOT EXISTS bank_transactions (',
   '  id TEXT PRIMARY KEY,',
@@ -664,6 +672,136 @@ export function getMarketHistory(userId: string, limit = 50): MarketHistoryEntry
     fee: Number(r.fee ?? 0),
     counterpart: String(r.counterpart ?? ''),
   }));
+}
+
+/** Срок жизни лота карточки — тот же, что у предметов */
+const CARD_LISTING_TTL_MS = MARKET_LISTING_TTL_MS;
+
+/** Убрать просроченные лоты карточек */
+function expireCardListings(): void {
+  db.prepare('DELETE FROM card_listings WHERE expires_at < ?').run(Date.now());
+}
+
+export interface CardListing {
+  id: string;
+  cardId: string;
+  name: string;
+  set: string;
+  power: number;
+  sellerId: string;
+  sellerName: string;
+  price: number;
+  createdAt: number;
+  expiresAt: number;
+  mine: boolean;
+}
+
+/**
+ * Выставить особую карточку на общий рынок. Карточки торгуются так же, как
+ * предметы: свободная цена, срок жизни лота и комиссия дома при продаже.
+ * Это нужно, чтобы игрок (и бот) мог добыть карточку, не выкручивая колесо.
+ */
+export function listCard(sellerId: string, cardId: string, price: number): MarketOpResult {
+  expireCardListings();
+  const def = findCard(cardId);
+  if (!def) return { ok: false, error: 'Такой карточки не существует' };
+  price = Math.floor(price);
+  if (!Number.isFinite(price) || price < 1) return { ok: false, error: 'Укажите цену больше нуля' };
+  // нужна конкретная копия карточки в руке
+  const owned = db
+    .prepare('SELECT id FROM cards WHERE user_id = ? AND card_id = ? LIMIT 1')
+    .get(sellerId, cardId) as Row | undefined;
+  if (!owned) return { ok: false, error: 'У вас нет такой карточки' };
+  db.prepare('DELETE FROM cards WHERE id = ?').run(String(owned.id));
+  db.prepare(
+    'INSERT INTO card_listings (id, card_id, seller_id, price, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(crypto.randomUUID(), cardId, sellerId, price, Date.now(), Date.now() + CARD_LISTING_TTL_MS);
+  return { ok: true };
+}
+
+/** Активные лоты карточек: дешёвые впереди — покупатель ищет выгоду */
+export function getCardListings(viewerId: string, cardId?: string): CardListing[] {
+  expireCardListings();
+  const rows = db
+    .prepare(
+      'SELECT c.id, c.card_id, c.seller_id, c.price, c.created_at, c.expires_at, u.name AS seller_name ' +
+        'FROM card_listings c JOIN users u ON u.id = c.seller_id ' +
+        (cardId ? 'WHERE c.card_id = ? ' : '') +
+        'ORDER BY c.price ASC, c.created_at ASC',
+    )
+    .all(...(cardId ? [cardId] : [])) as unknown as Row[];
+  const out: CardListing[] = [];
+  for (const r of rows) {
+    const def = findCard(String(r.card_id));
+    // карточка могла исчезнуть из каталога — такой лот просто не показываем
+    if (!def) continue;
+    out.push({
+      id: String(r.id),
+      cardId: def.id,
+      name: def.name,
+      set: def.setId,
+      power: def.power,
+      sellerId: String(r.seller_id),
+      sellerName: String(r.seller_name),
+      price: Number(r.price),
+      createdAt: Number(r.created_at),
+      expiresAt: Number(r.expires_at),
+      mine: String(r.seller_id) === viewerId,
+    });
+  }
+  return out;
+}
+
+/** Купить карточку: деньги покупателя продавцу (минус комиссия дома), карточка покупателю */
+export function buyCard(buyerId: string, listingId: string): MarketOpResult {
+  expireCardListings();
+  const row = db.prepare('SELECT card_id, seller_id, price FROM card_listings WHERE id = ?').get(listingId) as Row | undefined;
+  if (!row) return { ok: false, error: 'Лот не найден или истёк' };
+  const sellerId = String(row.seller_id);
+  if (sellerId === buyerId) return { ok: false, error: 'Это ваш собственный лот' };
+  const price = Number(row.price);
+  const buyer = getUserById(buyerId);
+  const seller = getUserById(sellerId);
+  if (!buyer || !seller) return { ok: false, error: 'Участник сделки не найден' };
+  if (buyer.cash < price) return { ok: false, error: 'Недостаточно денег для покупки' };
+
+  // комиссия дома считается так же, как при покупке предмета
+  const buyerBonuses = getActiveSetBonuses(buyerId);
+  const feePct = buyerBonuses.includes('market_fee_discount') ? 3 : MARKET_FEE_PCT;
+  const fee = Math.floor((price * feePct) / 100);
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE users SET cash = cash - ? WHERE id = ?').run(price, buyerId);
+    db.prepare('UPDATE users SET cash = cash + ? WHERE id = ?').run(price - fee, sellerId);
+    db.prepare('DELETE FROM card_listings WHERE id = ?').run(listingId);
+    db.prepare('INSERT INTO cards (id, user_id, card_id, created_at) VALUES (?, ?, ?, ?)').run(
+      crypto.randomUUID(),
+      buyerId,
+      String(row.card_id),
+      Date.now(),
+    );
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  if (fee > 0) houseAdjust(fee, 'market_fee', buyerId, 'Комиссия за покупку карточки');
+  return { ok: true, value: price };
+}
+
+/** Снять свой лот карточки — она возвращается в руку */
+export function cancelCardListing(sellerId: string, listingId: string): MarketOpResult {
+  const row = db.prepare('SELECT card_id, seller_id FROM card_listings WHERE id = ?').get(listingId) as Row | undefined;
+  if (!row) return { ok: false, error: 'Лот не найден' };
+  if (String(row.seller_id) !== sellerId) return { ok: false, error: 'Это не ваш лот' };
+  db.prepare('DELETE FROM card_listings WHERE id = ?').run(listingId);
+  db.prepare('INSERT INTO cards (id, user_id, card_id, created_at) VALUES (?, ?, ?, ?)').run(
+    crypto.randomUUID(),
+    sellerId,
+    String(row.card_id),
+    Date.now(),
+  );
+  return { ok: true };
 }
 
 /** Выставить предмет на барахолку по своей цене */
@@ -1270,6 +1408,88 @@ export function removeShowcaseItem(userId: string, itemId: string): MarketOpResu
 }
 
 /** Трансмутация (сет алхимика): раз в сутки 3 белых -> зелёный (10% шанс синего) */
+/**
+ * Крафт: три предмета ОДНОГО качества обмениваются на «Пыльную вазу» —
+ * билет колеса фортуны. Качество выбирает игрок; берутся три самых дешёвых
+ * подходящих предмета, чтобы крафт не съедал ценные вещи.
+ *
+ * Раньше трансмутация была только белой (3 белых → зелёный) и раз в сутки;
+ * теперь рецепт работает с любым качеством и без суточного лимита — это
+ * способ пустить в дело хлам, а не редкая награда.
+ */
+export function craftVase(userId: string, rarity: Rarity): MarketOpResult {
+  const u = getUserById(userId);
+  if (!u) return { ok: false, error: 'Пользователь не найден' };
+
+  const ticket = ITEM_CATALOG.find((d) => d.id === WHEEL_TICKET_DEF_ID);
+  if (!ticket) return { ok: false, error: 'Билет колеса не найден в каталоге' };
+
+  // Свободный инвентарь: не в партии, не на барахолке и не в витрине
+  // Билеты в крафт не идут: ваза — самый дешёвый белый предмет, и без этого
+  // условия рецепт съедал готовые билеты, превращая пять ваз в три.
+  const picked = db
+    .prepare(
+      'SELECT * FROM items WHERE user_id = ? AND rarity = ? AND game_id IS NULL ' +
+        'AND def_id != ? ' +
+        'AND id NOT IN (SELECT item_id FROM market_listings) ' +
+        'AND id NOT IN (SELECT item_id FROM showcase_items) ' +
+        'ORDER BY value ASC LIMIT ?',
+    )
+    .all(userId, rarity, WHEEL_TICKET_DEF_ID, CRAFT_ITEMS_PER_RECIPE) as unknown as Row[];
+  if (picked.length < CRAFT_ITEMS_PER_RECIPE) {
+    return {
+      ok: false,
+      error:
+        'Нужно ' + CRAFT_ITEMS_PER_RECIPE + ' предмета качества «' + RARITY_LABEL[rarity] +
+        '» — не хватает ' + (CRAFT_ITEMS_PER_RECIPE - picked.length),
+    };
+  }
+
+  // Место ищем ДО списания: иначе при полном инвентаре предметы сгорят
+  const slot = findFreeSlot(userId, ticket.w, ticket.h);
+  if (!slot) return { ok: false, error: 'Нет места в инвентаре — освободите сетку' };
+
+  const newItem: ItemInstance = {
+    id: crypto.randomUUID(),
+    defId: ticket.id,
+    name: ticket.name,
+    rarity: ticket.rarity,
+    value: ticket.value,
+    w: ticket.w,
+    h: ticket.h,
+  };
+
+  db.exec('BEGIN');
+  try {
+    for (const row of picked) db.prepare('DELETE FROM items WHERE id = ?').run(String(row.id));
+    db.prepare(
+      'INSERT INTO items (id, user_id, def_id, name, rarity, value, w, h, game_id, inv_x, inv_y, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
+    ).run(newItem.id, userId, newItem.defId, newItem.name, newItem.rarity, newItem.value, newItem.w, newItem.h, slot.x, slot.y, Date.now());
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return { ok: true, item: newItem };
+}
+
+/** Сколько рецептов каждого качества сейчас доступно игроку (для интерфейса крафта) */
+export function craftOptions(userId: string): { rarity: Rarity; available: number; ready: boolean }[] {
+  const rows = db
+    .prepare(
+      'SELECT rarity, COUNT(*) AS n FROM items WHERE user_id = ? AND game_id IS NULL ' +
+        'AND def_id != ? ' +
+        'AND id NOT IN (SELECT item_id FROM market_listings) ' +
+        'AND id NOT IN (SELECT item_id FROM showcase_items) GROUP BY rarity',
+    )
+    .all(userId, WHEEL_TICKET_DEF_ID) as unknown as Row[];
+  const byRarity = new Map(rows.map((r) => [String(r.rarity), Number(r.n)]));
+  return RARITY_ORDER.map((r) => {
+    const available = byRarity.get(r) ?? 0;
+    return { rarity: r, available, ready: available >= CRAFT_ITEMS_PER_RECIPE };
+  });
+}
+
 export function transmute(userId: string): MarketOpResult {
   const bonuses = getActiveSetBonuses(userId);
   if (!bonuses.includes('transmutation')) {
@@ -1628,6 +1848,28 @@ export function getCards(userId: string): PlayerCardGroup[] {
     if (count > 0) out.push({ cardId: def.id, count });
   }
   return out;
+}
+
+/**
+ * Выдать игроку особую карточку (награда, админ-выдача, тесты).
+ * Карточки хранятся по одной строке на копию — так их можно продавать поштучно.
+ */
+/** Тестовая утилита: убрать предмет из инвентаря (только для подготовки условий) */
+export function deleteItemForTest(userId: string, itemId: string): void {
+  db.prepare('DELETE FROM items WHERE id = ? AND user_id = ?').run(itemId, userId);
+}
+
+export function addCard(userId: string, cardId: string): { ok: boolean; error?: string } {
+  const def = findCard(cardId);
+  if (!def) return { ok: false, error: 'Такой карточки не существует' };
+  if (!getUserById(userId)) return { ok: false, error: 'Пользователь не найден' };
+  db.prepare('INSERT INTO cards (id, user_id, card_id, created_at) VALUES (?, ?, ?, ?)').run(
+    crypto.randomUUID(),
+    userId,
+    cardId,
+    Date.now(),
+  );
+  return { ok: true };
 }
 
 /** Число «Пыльных ваз» в свободном инвентаре (билеты для колеса фортуны) */

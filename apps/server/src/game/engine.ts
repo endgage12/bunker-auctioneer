@@ -125,6 +125,8 @@ interface GPlayer {
   bid: number | null;
   /** серия побед подряд на входе в партию */
   streak: number;
+  /** сколько особых карточек применено в текущем раунде торгов */
+  cardsUsedThisRound: number;
   inventory: ItemInstance[];
 }
 
@@ -287,6 +289,7 @@ export class Game {
       passed: false,
       bid: null,
       streak: p.streak ?? 0,
+      cardsUsedThisRound: 0,
       inventory: p.inventory.map((i) => ({ ...i })),
     }));
     // стол формируется и запечатывается ДО начала торгов
@@ -769,6 +772,13 @@ export class Game {
    */
   useAnalyzerCard(playerId: string, count: number): string | null {
     if (this.phase !== 'auction' || !this.auction) return 'Анализатор можно применить только во время торгов';
+    const me = this.getPlayer(playerId);
+    if (!me) return 'Игрок не найден';
+    // За один раунд торгов — только одна особая карточка: иначе игрок
+    // с запасом карточек раскрывал бы весь стол сразу.
+    if (me.cardsUsedThisRound >= 1) {
+      return 'В одном раунде можно применить только одну особую карточку';
+    }
     // только по-настоящему скрытые предметы: подсказка о том, что уже видно,
     // бесполезна и ломает контракт «подсказка указывает на закрытую клетку»
     const hidden = this.placed.filter((pl) => !pl.revealed);
@@ -777,6 +787,7 @@ export class Game {
     const hints: RarityHint[] = picked.map((pl) => ({ itemId: pl.it.id, rarity: pl.it.rarity }));
     const prev = this.rarityHints.get(playerId) ?? [];
     this.rarityHints.set(playerId, [...prev, ...hints]);
+    me.cardsUsedThisRound += 1;
     this.changed();
     return null;
   }
@@ -814,6 +825,8 @@ export class Game {
     a.phase = 'bid';
     const activeIds = a.round === 6 ? a.tiedIds : this.players.map((p) => p.id);
     for (const p of this.players) {
+      // лимит карточек обновляется каждый раунд
+      p.cardsUsedThisRound = 0;
       if (activeIds.includes(p.id)) {
         p.passed = false;
         p.bid = null;
@@ -1156,6 +1169,7 @@ export class Game {
       online: p.online,
       passed: p.passed,
       bidPlaced: p.bid !== null,
+      cardsUsedThisRound: p.cardsUsedThisRound,
       inventoryValue: itemsTotal(p.inventory),
       isHost: p.id === this.hostId,
       ready: false,

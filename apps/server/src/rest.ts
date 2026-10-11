@@ -3,6 +3,8 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { config } from './config';
 import * as db from './db';
+import { CRAFT_ITEMS_PER_RECIPE, CRAFT_RECIPES, RARITY_ORDER } from '@auctioneer/shared';
+import type { Rarity } from '@auctioneer/shared';
 import { authRequired, consumeOauthState, exchangeGoogleCode, googleAuthUrl, passwordAccounts, registerFailedLogin, resetLoginAttempts, safeEqual, signToken } from './auth';
 import type { AuthRequest } from './auth';
 import { manager } from './game/manager';
@@ -128,6 +130,77 @@ export function createRestRouter(): Router {
       return;
     }
     res.json({ ok: true });
+  });
+
+  // ---------- рынок особых карточек ----------
+  // Карточки торгуются на тех же условиях, что предметы: свободная цена,
+  // срок жизни лота и комиссия дома. Иначе карточку можно добыть только
+  // колесом фортуны, и у бота нет способа их докупить.
+
+  r.get('/api/market/cards', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const cardId = typeof req.query.cardId === 'string' ? req.query.cardId : undefined;
+    res.json(db.getCardListings(userId, cardId));
+  });
+
+  r.post('/api/market/cards/list', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const body = (req.body ?? {}) as { cardId?: string; price?: number };
+    const result = db.listCard(userId, String(body.cardId ?? ''), Number(body.price ?? 0));
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  r.post('/api/market/cards/buy', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const body = (req.body ?? {}) as { listingId?: string };
+    const result = db.buyCard(userId, String(body.listingId ?? ''));
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true, price: result.value ?? 0 });
+  });
+
+  r.post('/api/market/cards/cancel', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const body = (req.body ?? {}) as { listingId?: string };
+    const result = db.cancelCardListing(userId, String(body.listingId ?? ''));
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  // ---------- крафт ----------
+
+  r.get('/api/craft', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    res.json({
+      recipes: CRAFT_RECIPES,
+      perRecipe: CRAFT_ITEMS_PER_RECIPE,
+      options: db.craftOptions(userId),
+    });
+  });
+
+  r.post('/api/craft/vase', authRequired, (req, res) => {
+    const userId = (req as AuthRequest).userId ?? '';
+    const body = (req.body ?? {}) as { rarity?: string };
+    const rarity = String(body.rarity ?? '') as Rarity;
+    if (!RARITY_ORDER.includes(rarity)) {
+      res.status(400).json({ error: 'Неизвестное качество' });
+      return;
+    }
+    const result = db.craftVase(userId, rarity);
+    if (!result.ok) {
+      res.status(400).json({ error: result.error ?? 'Ошибка' });
+      return;
+    }
+    res.json({ ok: true, item: result.item });
   });
 
   r.post('/api/items/sell', authRequired, (req, res) => {

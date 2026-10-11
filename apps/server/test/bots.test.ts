@@ -24,6 +24,8 @@ function makeState(opts: {
   totalItems?: number;
   cash?: number;
   phase?: 'ready' | 'auction';
+  /** объявленная залом ценность стола (потолок готовности платить) */
+  tableValue?: number;
 }): PublicGame {
   const cash = opts.cash ?? 500_000;
   const me: PublicPlayer = {
@@ -47,6 +49,7 @@ function makeState(opts: {
     players: [me, rival],
     board: { w: 12, h: 16, cells: [], lots: [] },
     items: [],
+    tableValue: opts.tableValue,
     auction:
       opts.phase === 'ready'
         ? null
@@ -113,12 +116,26 @@ describe('готовность платить зависит от характе
     }
   });
 
-  it('погоня за топ-10 (высокая амбиция) повышает готовность платить', () => {
-    const state = richState();
+  it('погоня за топ-10 (высокая амбиция) повышает готовность платить, но не выше номинала', () => {
+    // Потолок — объявленная ценность стола: платить больше номинала
+    // бессмысленно, предметы стоят ровно столько. Раньше множители риска,
+    // жадности и амбиции перемножались, и 90% столов уходило дороже номинала
+    // (в среднем на 26к) — парк ботов разорялся.
     const c = BOT_CHARACTERS.calculating;
-    const calm = willingnessToPay(state, meOf(state), c, { morale: 0.5, ambition: 1 }, () => 0.5);
-    const hungry = willingnessToPay(state, meOf(state), c, { morale: 0.5, ambition: 1.5 }, () => 0.5);
-    expect(hungry).toBeGreaterThan(calm);
+    const withAmbition = (ambition: number, tableValue: number): number => {
+      const st = makeState({ cash: 100_000_000, tableValue });
+      return willingnessToPay(st, meOf(st), c, { morale: 0.5, ambition }, () => 0.5);
+    };
+
+    // Голодный до топа бот не платит меньше спокойного
+    expect(withAmbition(1.5, 500_000_000)).toBeGreaterThanOrEqual(withAmbition(1, 500_000_000));
+
+    // И ни один из них не пробивает номинал: на дешёвом столе потолок держит
+    const cheapNominal = 3_000_000;
+    for (const ambition of [0.7, 1, 1.5, 2.5]) {
+      const pay = withAmbition(ambition, cheapNominal);
+      expect(pay, 'амбиция ' + ambition).toBeLessThanOrEqual(cheapNominal);
+    }
   });
 
   it('проигрышная серия (низкое morale) поднимает агрессию у мстительного', () => {
